@@ -10,12 +10,14 @@ import io.github.nadya.assistant.adapter.out.gemini.config.GeminiProperties;
 import io.github.nadya.assistant.adapter.out.gemini.mapper.GeminiInterpretationMapper;
 import io.github.nadya.assistant.adapter.out.gemini.service.GeminiIntentInterpreterAdapter;
 import io.github.nadya.assistant.adapter.out.google.calendar.client.GoogleCalendarClient;
+import io.github.nadya.assistant.adapter.out.google.calendar.client.HttpGoogleCalendarClient;
 import io.github.nadya.assistant.adapter.out.google.calendar.client.StubGoogleCalendarClient;
 import io.github.nadya.assistant.adapter.out.google.calendar.config.GoogleCalendarProperties;
 import io.github.nadya.assistant.adapter.out.google.calendar.mapper.GoogleCalendarRequestMapper;
 import io.github.nadya.assistant.adapter.out.google.calendar.oauth.GoogleCalendarOAuthSupport;
 import io.github.nadya.assistant.adapter.out.google.calendar.service.GoogleCalendarAdapter;
 import io.github.nadya.assistant.adapter.out.notification.telegram.client.StubTelegramNotificationClient;
+import io.github.nadya.assistant.adapter.out.notification.telegram.client.TelegramBotApiNotificationClient;
 import io.github.nadya.assistant.adapter.out.notification.telegram.client.TelegramNotificationClient;
 import io.github.nadya.assistant.adapter.out.notification.telegram.config.TelegramNotificationProperties;
 import io.github.nadya.assistant.adapter.out.notification.telegram.mapper.TelegramNotificationMapper;
@@ -69,7 +71,7 @@ public class AdapterBeansConfig {
                 environment,
                 "assistant.gemini",
                 GeminiProperties.class,
-                new GeminiProperties("gemini-2.5-flash", "", true)
+                new GeminiProperties("gemini-2.5-flash", "", true, "https://generativelanguage.googleapis.com", true)
         );
     }
 
@@ -92,13 +94,16 @@ public class AdapterBeansConfig {
                 environment,
                 "assistant.google-calendar",
                 GoogleCalendarProperties.class,
-                new GoogleCalendarProperties(false, "primary", true)
+                new GoogleCalendarProperties(false, "primary", true, "", "https://www.googleapis.com/calendar/v3")
         );
     }
 
     @Bean
-    GoogleCalendarClient googleCalendarClient() {
-        return new StubGoogleCalendarClient();
+    GoogleCalendarClient googleCalendarClient(GoogleCalendarProperties googleCalendarProperties) {
+        if (googleCalendarProperties.stubMode()) {
+            return new StubGoogleCalendarClient();
+        }
+        return new HttpGoogleCalendarClient(googleCalendarProperties);
     }
 
     @Bean
@@ -132,13 +137,16 @@ public class AdapterBeansConfig {
                 environment,
                 "assistant.telegram.notification",
                 TelegramNotificationProperties.class,
-                new TelegramNotificationProperties(false, "", true)
+                new TelegramNotificationProperties(false, "", true, "https://api.telegram.org")
         );
     }
 
     @Bean
-    TelegramNotificationClient telegramNotificationClient() {
-        return new StubTelegramNotificationClient();
+    TelegramNotificationClient telegramNotificationClient(TelegramNotificationProperties telegramNotificationProperties) {
+        if (telegramNotificationProperties.stubMode()) {
+            return new StubTelegramNotificationClient();
+        }
+        return new TelegramBotApiNotificationClient(telegramNotificationProperties.apiBaseUrl());
     }
 
     @Bean
@@ -165,7 +173,17 @@ public class AdapterBeansConfig {
                 environment,
                 "assistant.telegram.polling",
                 TelegramPollingProperties.class,
-                new TelegramPollingProperties(false, "", Duration.ofSeconds(5), 100, true, java.util.List.of(), 10001L, 20001L)
+                new TelegramPollingProperties(
+                        false,
+                        "",
+                        Duration.ofSeconds(5),
+                        100,
+                        true,
+                        java.util.List.of(),
+                        10001L,
+                        20001L,
+                        "https://api.telegram.org"
+                )
         );
     }
 

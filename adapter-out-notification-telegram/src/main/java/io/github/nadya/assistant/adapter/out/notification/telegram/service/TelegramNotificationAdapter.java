@@ -32,6 +32,10 @@ public final class TelegramNotificationAdapter implements NotificationPort {
             return;
         }
 
-        telegramNotificationClient.send(mapper.map(command, properties));
+        TelegramNotificationClient.SendMessageResponse response =
+                telegramNotificationClient.send(mapper.map(command, properties));
+        if (!response.accepted()) {
+            throw new IllegalStateException("Telegram notification was not accepted");
+        }
     }
 }

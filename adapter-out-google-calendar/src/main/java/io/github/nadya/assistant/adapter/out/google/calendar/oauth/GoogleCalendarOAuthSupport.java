@@ -6,6 +6,6 @@ public final class GoogleCalendarOAuthSupport {
 
     public boolean isReady(GoogleCalendarProperties properties) {
         // TODO: wire real OAuth credential loading and refresh flow for Google Calendar API access.
-        return properties.enabled();
+        return properties.enabled() && !properties.accessToken().isBlank();
     }
 }

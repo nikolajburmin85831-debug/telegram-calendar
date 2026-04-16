@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GeminiIntentInterpreterAdapterTest {
 
     private final GeminiIntentInterpreterAdapter adapter = new GeminiIntentInterpreterAdapter(
-            new GeminiProperties("gemini-2.5-flash", "", true),
+            new GeminiProperties("gemini-2.5-flash", "", true, "https://generativelanguage.googleapis.com", true),
             new GeminiInterpretationMapper()
     );
 
@@ -72,6 +72,16 @@ class GeminiIntentInterpreterAdapterTest {
         var interpretation = adapter.interpret(requestForFollowUp("в 10:00"));
 
         assertEquals(IntentType.CREATE_CALENDAR_EVENT, interpretation.intentType());
+        assertEquals("10:00", interpretation.assistantIntent().entities().get("startTime"));
+        assertEquals("false", interpretation.assistantIntent().entities().get("allDay"));
+    }
+
+    @Test
+    void shouldInterpretFollowUpDateAndTimeInClarificationContext() {
+        var interpretation = adapter.interpret(requestForFollowUp("завтра в 10"));
+
+        assertEquals(IntentType.CREATE_CALENDAR_EVENT, interpretation.intentType());
+        assertEquals("2026-04-17", interpretation.assistantIntent().entities().get("startDate"));
         assertEquals("10:00", interpretation.assistantIntent().entities().get("startTime"));
         assertEquals("false", interpretation.assistantIntent().entities().get("allDay"));
     }

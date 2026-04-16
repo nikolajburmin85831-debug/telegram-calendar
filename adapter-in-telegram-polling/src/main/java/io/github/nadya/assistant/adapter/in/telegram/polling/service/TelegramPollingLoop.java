@@ -52,7 +52,9 @@ public final class TelegramPollingLoop implements AutoCloseable {
     }
 
     public int pollOnce() {
-        List<TelegramUpdateDto> updates = telegramPollingClient.getUpdates(nextOffset.get(), properties.limit());
+        List<TelegramUpdateDto> updates = telegramPollingClient.getUpdates(nextOffset.get(), properties.limit()).stream()
+                .sorted(Comparator.comparingLong(TelegramUpdateDto::updateId))
+                .toList();
         for (TelegramUpdateDto update : updates) {
             telegramUpdateMapper.map(update).ifPresent(handleIncomingMessageUseCase::handle);
         }

@@ -1,7 +1,9 @@
 package io.github.nadya.assistant.adapter.in.telegram.polling.service;
 
 import io.github.nadya.assistant.adapter.in.telegram.polling.client.StubTelegramPollingClient;
+import io.github.nadya.assistant.adapter.in.telegram.polling.client.TelegramPollingClient;
 import io.github.nadya.assistant.adapter.in.telegram.polling.config.TelegramPollingProperties;
+import io.github.nadya.assistant.adapter.in.telegram.polling.dto.TelegramUpdateDto;
 import io.github.nadya.assistant.adapter.in.telegram.polling.mapper.TelegramUpdateMapper;
 import io.github.nadya.assistant.domain.conversation.IncomingUserMessage;
 import io.github.nadya.assistant.domain.execution.ExecutionResult;
@@ -28,11 +30,22 @@ class TelegramPollingLoopTest {
                         true,
                         List.of("Напомни завтра в 10:00 позвонить маме"),
                         42L,
-                        101L
+                        101L,
+                        "https://api.telegram.org"
                 )),
                 new TelegramUpdateMapper(),
                 useCase,
-                new TelegramPollingProperties(true, "", Duration.ofSeconds(1), 10, true, List.of("x"), 42L, 101L)
+                new TelegramPollingProperties(
+                        true,
+                        "",
+                        Duration.ofSeconds(1),
+                        10,
+                        true,
+                        List.of("x"),
+                        42L,
+                        101L,
+                        "https://api.telegram.org"
+                )
         );
 
         int handledCount = loop.pollOnce();
@@ -43,6 +56,65 @@ class TelegramPollingLoopTest {
         assertEquals(1, useCase.messages.size());
         assertEquals("telegram-user:42", useCase.messages.get(0).userId().value());
         assertEquals("telegram-chat:101", useCase.messages.get(0).conversationId());
+    }
+
+    @Test
+    void shouldAdvanceOffsetUsingHighestUpdateIdEvenIfClientReturnsUnorderedUpdates() {
+        RecordingHandleIncomingMessageUseCase useCase = new RecordingHandleIncomingMessageUseCase();
+        TelegramPollingClient client = new TelegramPollingClient() {
+            private boolean firstCall = true;
+
+            @Override
+            public List<TelegramUpdateDto> getUpdates(long offset, int limit) {
+                if (!firstCall) {
+                    assertEquals(8L, offset);
+                    return List.of();
+                }
+                firstCall = false;
+                return List.of(
+                        update(7L, 102L, "второе"),
+                        update(3L, 101L, "первое")
+                );
+            }
+        };
+
+        TelegramPollingLoop loop = new TelegramPollingLoop(
+                client,
+                new TelegramUpdateMapper(),
+                useCase,
+                new TelegramPollingProperties(
+                        true,
+                        "",
+                        Duration.ofSeconds(1),
+                        10,
+                        true,
+                        List.of(),
+                        42L,
+                        101L,
+                        "https://api.telegram.org"
+                )
+        );
+
+        int handledCount = loop.pollOnce();
+        int secondPollCount = loop.pollOnce();
+
+        assertEquals(2, handledCount);
+        assertEquals(0, secondPollCount);
+        assertEquals("первое", useCase.messages.get(0).text());
+        assertEquals("второе", useCase.messages.get(1).text());
+    }
+
+    private TelegramUpdateDto update(long updateId, long messageId, String text) {
+        return new TelegramUpdateDto(
+                updateId,
+                new TelegramUpdateDto.TelegramMessageDto(
+                        messageId,
+                        new TelegramUpdateDto.TelegramUserDto(42L, "user", "ru"),
+                        new TelegramUpdateDto.TelegramChatDto(101L, "private"),
+                        text,
+                        java.time.Instant.parse("2026-04-16T20:15:30Z")
+                )
+        );
     }
 
     private static final class RecordingHandleIncomingMessageUseCase implements HandleIncomingMessageUseCase {

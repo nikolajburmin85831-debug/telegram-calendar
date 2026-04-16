@@ -9,6 +9,7 @@ import io.github.nadya.assistant.application.service.ConversationControlService;
 import io.github.nadya.assistant.application.service.HandleIncomingMessageService;
 import io.github.nadya.assistant.application.service.PendingActionFactory;
 import io.github.nadya.assistant.application.service.PendingActionMergeService;
+import io.github.nadya.assistant.application.service.PendingFlowInterruptionService;
 import io.github.nadya.assistant.ports.in.HandleIncomingMessageUseCase;
 import io.github.nadya.assistant.ports.out.AuditPort;
 import io.github.nadya.assistant.ports.out.CalendarPort;
@@ -64,6 +65,11 @@ public class CoreBeansConfig {
     }
 
     @Bean
+    PendingFlowInterruptionService pendingFlowInterruptionService() {
+        return new PendingFlowInterruptionService();
+    }
+
+    @Bean
     HandleIncomingMessageUseCase handleIncomingMessageUseCase(
             UserContextPort userContextPort,
             ConversationStatePort conversationStatePort,
@@ -77,7 +83,8 @@ public class CoreBeansConfig {
             PendingConfirmationHandler pendingConfirmationHandler,
             PendingActionFactory pendingActionFactory,
             PendingActionMergeService pendingActionMergeService,
-            ConversationControlService conversationControlService
+            ConversationControlService conversationControlService,
+            PendingFlowInterruptionService pendingFlowInterruptionService
     ) {
         return new HandleIncomingMessageService(
                 userContextPort,
@@ -92,7 +99,8 @@ public class CoreBeansConfig {
                 pendingConfirmationHandler,
                 pendingActionFactory,
                 pendingActionMergeService,
-                conversationControlService
+                conversationControlService,
+                pendingFlowInterruptionService
         );
     }
 }

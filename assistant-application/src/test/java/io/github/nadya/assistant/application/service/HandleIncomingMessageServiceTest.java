@@ -322,6 +322,105 @@ class HandleIncomingMessageServiceTest {
     }
 
     @Test
+    void shouldFillMultipleMissingFieldsFromSingleFollowUp() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+        InMemoryConversationStatePort conversationStatePort = new InMemoryConversationStatePort();
+
+        HandleIncomingMessageService service = createService(
+                request -> switch (request.message().text()) {
+                    case "Создай встречу с командой" -> interpretation(
+                            Map.of("title", "встреча с командой"),
+                            List.of(),
+                            List.of("date", "time"),
+                            false,
+                            0.70d
+                    );
+                    case "завтра в 10" -> interpretation(
+                            Map.of(
+                                    "startDate", "2026-04-17",
+                                    "startTime", "10:00",
+                                    "allDay", "false"
+                            ),
+                            List.of(),
+                            List.of("title"),
+                            false,
+                            0.92d
+                    );
+                    default -> throw new IllegalStateException("Unexpected message: " + request.message().text());
+                },
+                new InMemoryUserContextPort(),
+                conversationStatePort,
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        service.handle(sampleMessage("msg-13", "Создай встречу с командой"));
+        ExecutionResult second = service.handle(sampleMessage("msg-14", "завтра в 10"));
+
+        ConversationState state = conversationStatePort.findByConversationId("telegram-chat:101").orElseThrow();
+        assertTrue(second.success());
+        assertEquals(1, calendarPort.createdDrafts.size());
+        assertEquals("встреча с командой", calendarPort.createdDrafts.get(0).title());
+        assertTrue(second.userSummary().contains("10:00"));
+        assertEquals(ConversationStatus.COMPLETED, state.status());
+        assertNull(state.pendingAction());
+    }
+
+    @Test
+    void shouldRejectUnrelatedNewRequestDuringPendingClarification() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+        InMemoryConversationStatePort conversationStatePort = new InMemoryConversationStatePort();
+
+        HandleIncomingMessageService service = createService(
+                request -> switch (request.message().text()) {
+                    case "Напомни завтра позвонить маме" -> interpretation(
+                            Map.of(
+                                    "title", "позвонить маме",
+                                    "startDate", "2026-04-17",
+                                    "allDay", "false"
+                            ),
+                            List.of(),
+                            List.of("time"),
+                            false,
+                            0.72d
+                    );
+                    case "Создай встречу с Петей завтра" -> interpretation(
+                            Map.of(
+                                    "title", "с петей",
+                                    "startDate", "2026-04-17",
+                                    "allDay", "false"
+                            ),
+                            List.of(),
+                            List.of("time"),
+                            false,
+                            0.80d
+                    );
+                    default -> throw new IllegalStateException("Unexpected message: " + request.message().text());
+                },
+                new InMemoryUserContextPort(),
+                conversationStatePort,
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        service.handle(sampleMessage("msg-15", "Напомни завтра позвонить маме"));
+        ExecutionResult second = service.handle(sampleMessage("msg-16", "Создай встречу с Петей завтра"));
+
+        ConversationState state = conversationStatePort.findByConversationId("telegram-chat:101").orElseThrow();
+        assertTrue(second.success());
+        assertEquals("Сначала завершите текущий запрос или напишите \"отмена\", а потом начните новый.", second.userSummary());
+        assertTrue(calendarPort.createdDrafts.isEmpty());
+        assertEquals(ConversationStatus.AWAITING_TIME, state.status());
+        assertNotNull(state.pendingAction());
+    }
+
+    @Test
     void shouldSkipDuplicateMessageByIdempotencyKey() {
         RecordingCalendarPort calendarPort = new RecordingCalendarPort();
         RecordingNotificationPort notificationPort = new RecordingNotificationPort();
@@ -348,6 +447,40 @@ class HandleIncomingMessageServiceTest {
         assertEquals(1, notificationPort.commands.size());
     }
 
+    @Test
+    void shouldTreatSameExternalMessageIdFromDifferentChatsAsDifferentMessages() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+
+        HandleIncomingMessageService service = createService(
+                request -> completeInterpretation("позвонить маме", "2026-04-17", "10:00"),
+                new InMemoryUserContextPort(),
+                new InMemoryConversationStatePort(),
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        IncomingUserMessage firstChatMessage = sampleMessage("msg-17", "Напомни завтра в 10:00 позвонить маме");
+        IncomingUserMessage secondChatMessage = new IncomingUserMessage(
+                "internal-msg-18",
+                "msg-17",
+                new UserIdentity("telegram-user:77"),
+                ChannelType.TELEGRAM,
+                "telegram-chat:202",
+                "Напомни завтра в 10:00 позвонить маме",
+                Instant.parse("2026-04-16T20:16:30Z")
+        );
+
+        service.handle(firstChatMessage);
+        ExecutionResult second = service.handle(secondChatMessage);
+
+        assertTrue(second.success());
+        assertEquals(2, calendarPort.createdDrafts.size());
+        assertEquals(2, notificationPort.commands.size());
+    }
+
     private HandleIncomingMessageService createService(
             InterpretationScript interpretationScript,
             UserContextPort userContextPort,
@@ -370,7 +503,8 @@ class HandleIncomingMessageServiceTest {
                 new PendingConfirmationHandler(),
                 new PendingActionFactory(),
                 new PendingActionMergeService(),
-                new ConversationControlService()
+                new ConversationControlService(),
+                new PendingFlowInterruptionService()
         );
     }
 

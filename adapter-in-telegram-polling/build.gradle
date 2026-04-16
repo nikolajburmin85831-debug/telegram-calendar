@@ -2,4 +2,5 @@ description = 'Telegram polling inbound adapter.'
 
 dependencies {
     implementation project(':assistant-ports')
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
 }

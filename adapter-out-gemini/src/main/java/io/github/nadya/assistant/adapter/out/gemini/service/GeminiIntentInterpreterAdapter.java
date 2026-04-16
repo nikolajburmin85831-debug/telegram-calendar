@@ -1,5 +1,9 @@
 package io.github.nadya.assistant.adapter.out.gemini.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.nadya.assistant.adapter.out.gemini.config.GeminiProperties;
 import io.github.nadya.assistant.adapter.out.gemini.dto.GeminiGenerateContentRequest;
 import io.github.nadya.assistant.adapter.out.gemini.dto.GeminiGenerateContentResponse;
@@ -8,6 +12,14 @@ import io.github.nadya.assistant.domain.intent.IntentInterpretation;
 import io.github.nadya.assistant.ports.out.IntentInterpretationRequest;
 import io.github.nadya.assistant.ports.out.IntentInterpreterPort;
 
+import java.io.IOException;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -25,13 +37,34 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
     private static final Pattern TIME_PATTERN = Pattern.compile("(?iu)(?:\\b(?:в|at)\\s*)?(\\d{1,2})(?::(\\d{2}))\\b");
     private static final Pattern HOUR_ONLY_PATTERN = Pattern.compile("(?iu)\\b(?:в|at)\\s*(\\d{1,2})\\b");
     private static final Pattern LOCATION_PATTERN = Pattern.compile("(?iu)\\b(?:в|at)\\s+(офисе|zoom|online|онлайн)\\b");
+    private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(30);
 
     private final GeminiProperties properties;
     private final GeminiInterpretationMapper interpretationMapper;
+    private final HttpClient httpClient;
+    private final ObjectMapper objectMapper;
 
     public GeminiIntentInterpreterAdapter(GeminiProperties properties, GeminiInterpretationMapper interpretationMapper) {
+        this(
+                properties,
+                interpretationMapper,
+                HttpClient.newBuilder()
+                        .connectTimeout(HTTP_TIMEOUT)
+                        .build(),
+                new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        );
+    }
+
+    GeminiIntentInterpreterAdapter(
+            GeminiProperties properties,
+            GeminiInterpretationMapper interpretationMapper,
+            HttpClient httpClient,
+            ObjectMapper objectMapper
+    ) {
         this.properties = properties;
         this.interpretationMapper = interpretationMapper;
+        this.httpClient = httpClient;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -47,7 +80,22 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
 
     private String buildPrompt(IntentInterpretationRequest request) {
         return """
-                Interpret the incoming message into a canonical internal intent.
+                Interpret the incoming message into a canonical internal intent for a calendar assistant.
+                Return JSON only with this exact shape:
+                {
+                  "intentType": "CREATE_CALENDAR_EVENT|UNKNOWN",
+                  "entities": {
+                    "title": "...",
+                    "startDate": "YYYY-MM-DD",
+                    "startTime": "HH:mm",
+                    "allDay": "true|false",
+                    "location": "..."
+                  },
+                  "confidence": 0.0,
+                  "ambiguityMarkers": [],
+                  "missingFields": [],
+                  "safeToExecute": false
+                }
                 Message: %s
                 Conversation status: %s
                 Preferred timezone: %s
@@ -66,8 +114,129 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
             return simulateGeminiResponse(request);
         }
 
-        // TODO: replace heuristic implementation with a real Gemini API call and keep the raw response inside this adapter.
-        return simulateGeminiResponse(request);
+        try {
+            return invokeGemini(contentRequest);
+        } catch (RuntimeException exception) {
+            if (properties.fallbackToStubOnError()) {
+                return simulateGeminiResponse(request);
+            }
+            throw exception;
+        }
+    }
+
+    private GeminiGenerateContentResponse invokeGemini(GeminiGenerateContentRequest contentRequest) {
+        String requestBody = serializeGeminiRequest(contentRequest.prompt());
+        HttpRequest request = HttpRequest.newBuilder(buildGeminiUri(contentRequest.model()))
+                .timeout(HTTP_TIMEOUT)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
+                .build();
+
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("Gemini generateContent failed with status " + response.statusCode());
+            }
+            return parseGeminiResponse(response.body());
+        } catch (IOException exception) {
+            throw new IllegalStateException("Gemini response could not be parsed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Gemini request was interrupted", exception);
+        }
+    }
+
+    private URI buildGeminiUri(String model) {
+        String encodedModel = URLEncoder.encode(model, StandardCharsets.UTF_8);
+        String encodedApiKey = URLEncoder.encode(properties.apiKey(), StandardCharsets.UTF_8);
+        return URI.create(properties.baseUrl() + "/v1beta/models/" + encodedModel + ":generateContent?key=" + encodedApiKey);
+    }
+
+    private String serializeGeminiRequest(String prompt) {
+        var root = objectMapper.createObjectNode();
+        var contents = objectMapper.createArrayNode();
+        var content = objectMapper.createObjectNode();
+        var parts = objectMapper.createArrayNode();
+        parts.add(objectMapper.createObjectNode().put("text", prompt));
+        content.set("parts", parts);
+        contents.add(content);
+        root.set("contents", contents);
+        root.set(
+                "generationConfig",
+                objectMapper.createObjectNode()
+                        .put("responseMimeType", "application/json")
+                        .put("temperature", 0.1d)
+        );
+        try {
+            return objectMapper.writeValueAsString(root);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Gemini request could not be serialized", exception);
+        }
+    }
+
+    private GeminiGenerateContentResponse parseGeminiResponse(String responseBody) throws JsonProcessingException {
+        JsonNode root = objectMapper.readTree(responseBody);
+        JsonNode textNode = root.at("/candidates/0/content/parts/0/text");
+        if (textNode.isMissingNode() || textNode.asText().isBlank()) {
+            throw new IllegalStateException("Gemini response did not contain candidate text");
+        }
+
+        JsonNode canonicalResponse = objectMapper.readTree(cleanJson(textNode.asText()));
+        return new GeminiGenerateContentResponse(
+                canonicalResponse.path("intentType").asText("UNKNOWN"),
+                readEntities(canonicalResponse.path("entities")),
+                clampConfidence(canonicalResponse.path("confidence").asDouble(0.5d)),
+                readStringList(canonicalResponse.path("ambiguityMarkers")),
+                readStringList(canonicalResponse.path("missingFields")),
+                canonicalResponse.path("safeToExecute").asBoolean(false)
+        );
+    }
+
+    private String cleanJson(String rawText) {
+        String cleaned = rawText.trim();
+        if (cleaned.startsWith("```")) {
+            cleaned = cleaned.replaceFirst("^```(?:json)?", "").replaceFirst("```$", "").trim();
+        }
+        return cleaned;
+    }
+
+    private Map<String, String> readEntities(JsonNode entitiesNode) {
+        LinkedHashMap<String, String> entities = new LinkedHashMap<>();
+        if (!entitiesNode.isObject()) {
+            return entities;
+        }
+
+        entitiesNode.fields().forEachRemaining(entry -> {
+            if (!entry.getValue().isNull()) {
+                entities.put(entry.getKey(), entry.getValue().asText(""));
+            }
+        });
+        return entities;
+    }
+
+    private List<String> readStringList(JsonNode node) {
+        if (!node.isArray()) {
+            return List.of();
+        }
+
+        ArrayList<String> values = new ArrayList<>();
+        node.forEach(item -> {
+            String value = item.asText("").trim();
+            if (!value.isBlank()) {
+                values.add(value);
+            }
+        });
+        return List.copyOf(values);
+    }
+
+    private double clampConfidence(double confidence) {
+        if (confidence < 0.0d) {
+            return 0.0d;
+        }
+        if (confidence > 1.0d) {
+            return 1.0d;
+        }
+        return confidence;
     }
 
     private GeminiGenerateContentResponse simulateGeminiResponse(IntentInterpretationRequest request) {

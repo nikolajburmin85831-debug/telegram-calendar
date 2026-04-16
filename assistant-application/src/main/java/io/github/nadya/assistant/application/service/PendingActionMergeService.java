@@ -61,9 +61,9 @@ public final class PendingActionMergeService {
             IntentInterpretation baseInterpretation,
             ClarificationRequest clarificationRequest
     ) {
+        LinkedHashSet<String> allowedKeys = new LinkedHashSet<>();
         LinkedHashSet<String> unresolvedMarkers = new LinkedHashSet<>(baseInterpretation.missingFields());
         unresolvedMarkers.addAll(baseInterpretation.ambiguityMarkers());
-
         if (clarificationRequest != null) {
             if (clarificationRequest.reason() != null && !clarificationRequest.reason().isBlank()) {
                 unresolvedMarkers.add(clarificationRequest.reason());
@@ -71,27 +71,12 @@ public final class PendingActionMergeService {
             unresolvedMarkers.addAll(clarificationRequest.missingFields());
         }
 
-        LinkedHashSet<String> allowedKeys = new LinkedHashSet<>();
-        for (String unresolvedMarker : unresolvedMarkers) {
-            switch (unresolvedMarker) {
-                case "title" -> allowedKeys.add("title");
-                case "date" -> allowedKeys.add("startDate");
-                case "time", "time_is_range" -> {
-                    allowedKeys.add("startTime");
-                    allowedKeys.add("allDay");
-                }
-                default -> {
-                }
-            }
-        }
-
-        if (allowedKeys.isEmpty()) {
+        if (!unresolvedMarkers.isEmpty()) {
             allowedKeys.add("title");
             allowedKeys.add("startDate");
             allowedKeys.add("startTime");
             allowedKeys.add("allDay");
         }
-
         return allowedKeys;
     }
 

@@ -42,6 +42,7 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
     private final PendingActionFactory pendingActionFactory;
     private final PendingActionMergeService pendingActionMergeService;
     private final ConversationControlService conversationControlService;
+    private final PendingFlowInterruptionService pendingFlowInterruptionService;
 
     public HandleIncomingMessageService(
             UserContextPort userContextPort,
@@ -56,7 +57,8 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
             PendingConfirmationHandler pendingConfirmationHandler,
             PendingActionFactory pendingActionFactory,
             PendingActionMergeService pendingActionMergeService,
-            ConversationControlService conversationControlService
+            ConversationControlService conversationControlService,
+            PendingFlowInterruptionService pendingFlowInterruptionService
     ) {
         this.userContextPort = userContextPort;
         this.conversationStatePort = conversationStatePort;
@@ -71,6 +73,7 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         this.pendingActionFactory = pendingActionFactory;
         this.pendingActionMergeService = pendingActionMergeService;
         this.conversationControlService = conversationControlService;
+        this.pendingFlowInterruptionService = pendingFlowInterruptionService;
     }
 
     @Override
@@ -130,7 +133,11 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         String stableExternalId = message.externalMessageId().isBlank()
                 ? message.internalMessageId()
                 : message.externalMessageId();
-        return "%s:%s".formatted(message.channelType().name(), stableExternalId);
+        return "%s:%s:%s".formatted(
+                message.channelType().name(),
+                message.conversationId(),
+                stableExternalId
+        );
     }
 
     private UserContext loadUserContext(IncomingUserMessage message) {
@@ -188,6 +195,9 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         IntentInterpretation followUpInterpretation = intentInterpreterPort.interpret(
                 new IntentInterpretationRequest(message, userContext, conversationState)
         );
+        if (pendingFlowInterruptionService.isUnrelatedNewRequest(message, pendingAction, followUpInterpretation)) {
+            return clarificationInterruptionOutcome(conversationState);
+        }
         IntentInterpretation mergedInterpretation = pendingActionMergeService.merge(
                 pendingAction,
                 conversationState.clarificationRequest(),
@@ -209,7 +219,17 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
             UserContext userContext,
             ConversationState conversationState
     ) {
-        return switch (conversationControlService.resolveConfirmationReply(message.text())) {
+        ConfirmationReply confirmationReply = conversationControlService.resolveConfirmationReply(message.text());
+        if (confirmationReply == ConfirmationReply.INVALID
+                && pendingFlowInterruptionService.isUnrelatedNewRequest(
+                        message,
+                        conversationState.pendingAction(),
+                        intentInterpreterPort.interpret(new IntentInterpretationRequest(message, userContext, conversationState))
+                )) {
+            return confirmationInterruptionOutcome(conversationState);
+        }
+
+        return switch (confirmationReply) {
             case APPROVE -> handleDecision(
                     message,
                     conversationState.pendingAction().sourceMessage(),
@@ -282,6 +302,28 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         return new HandlingOutcome(
                 ExecutionResult.cancelled(userSummary, auditDetails),
                 conversationState.cancelled()
+        );
+    }
+
+    private HandlingOutcome clarificationInterruptionOutcome(ConversationState conversationState) {
+        return new HandlingOutcome(
+                ExecutionResult.clarificationRequested(
+                        "Сначала завершите текущий запрос или напишите \"отмена\", а потом начните новый.",
+                        "pending_flow_interruption_rejected",
+                        conversationState.status().name()
+                ),
+                conversationState
+        );
+    }
+
+    private HandlingOutcome confirmationInterruptionOutcome(ConversationState conversationState) {
+        return new HandlingOutcome(
+                ExecutionResult.confirmationRequested(
+                        "Сначала ответьте на текущее подтверждение: \"да\", \"нет\" или \"отмена\".",
+                        "pending_confirmation_interruption_rejected",
+                        conversationState.pendingConfirmation().pendingActionId()
+                ),
+                conversationState
         );
     }
 

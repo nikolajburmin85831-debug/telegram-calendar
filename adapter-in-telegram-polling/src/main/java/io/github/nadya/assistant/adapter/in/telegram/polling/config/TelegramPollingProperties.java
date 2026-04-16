@@ -12,7 +12,8 @@ public record TelegramPollingProperties(
         boolean stubMode,
         List<String> sampleMessages,
         long stubUserId,
-        long stubChatId
+        long stubChatId,
+        String apiBaseUrl
 ) {
 
     public TelegramPollingProperties {
@@ -24,5 +25,6 @@ public record TelegramPollingProperties(
         sampleMessages = List.copyOf(sampleMessages == null ? List.of() : sampleMessages);
         stubUserId = stubUserId <= 0 ? 10001L : stubUserId;
         stubChatId = stubChatId <= 0 ? 20001L : stubChatId;
+        apiBaseUrl = apiBaseUrl == null || apiBaseUrl.isBlank() ? "https://api.telegram.org" : apiBaseUrl.trim();
     }
 }

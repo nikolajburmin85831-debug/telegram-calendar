@@ -2,4 +2,5 @@ description = 'Google Calendar outbound adapter.'
 
 dependencies {
     implementation project(':assistant-ports')
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
 }
