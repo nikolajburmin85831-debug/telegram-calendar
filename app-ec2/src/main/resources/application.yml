@@ -19,6 +19,11 @@ assistant:
       bot-token: ""
       poll-interval: 5s
       limit: 100
+      stub-mode: true
+      sample-messages: []
+      stub-user-id: 10001
+      stub-chat-id: 20001
     notification:
       enabled: false
       bot-token: ""
+      stub-mode: true

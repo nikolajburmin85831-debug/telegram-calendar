@@ -2,6 +2,7 @@ package io.github.nadya.assistant.app.ec2.config;
 
 import io.github.nadya.assistant.adapter.in.telegram.polling.client.TelegramBotApiPollingClient;
 import io.github.nadya.assistant.adapter.in.telegram.polling.client.TelegramPollingClient;
+import io.github.nadya.assistant.adapter.in.telegram.polling.client.StubTelegramPollingClient;
 import io.github.nadya.assistant.adapter.in.telegram.polling.config.TelegramPollingProperties;
 import io.github.nadya.assistant.adapter.in.telegram.polling.mapper.TelegramUpdateMapper;
 import io.github.nadya.assistant.adapter.in.telegram.polling.service.TelegramPollingLoop;
@@ -131,7 +132,7 @@ public class AdapterBeansConfig {
                 environment,
                 "assistant.telegram.notification",
                 TelegramNotificationProperties.class,
-                new TelegramNotificationProperties(false, "")
+                new TelegramNotificationProperties(false, "", true)
         );
     }
 
@@ -164,12 +165,15 @@ public class AdapterBeansConfig {
                 environment,
                 "assistant.telegram.polling",
                 TelegramPollingProperties.class,
-                new TelegramPollingProperties(false, "", Duration.ofSeconds(5), 100)
+                new TelegramPollingProperties(false, "", Duration.ofSeconds(5), 100, true, java.util.List.of(), 10001L, 20001L)
         );
     }
 
     @Bean
     TelegramPollingClient telegramPollingClient(TelegramPollingProperties telegramPollingProperties) {
+        if (telegramPollingProperties.stubMode()) {
+            return new StubTelegramPollingClient(telegramPollingProperties);
+        }
         return new TelegramBotApiPollingClient(telegramPollingProperties);
     }
 

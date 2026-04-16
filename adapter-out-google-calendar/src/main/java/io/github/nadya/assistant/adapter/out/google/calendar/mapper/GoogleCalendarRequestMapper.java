@@ -13,6 +13,7 @@ public final class GoogleCalendarRequestMapper {
                 draft.description(),
                 draft.start().toOffsetDateTime().toString(),
                 draft.end().toOffsetDateTime().toString(),
+                draft.allDay(),
                 draft.timezone().value(),
                 draft.location()
         );

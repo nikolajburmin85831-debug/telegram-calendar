@@ -24,7 +24,11 @@ public final class TelegramNotificationAdapter implements NotificationPort {
 
     @Override
     public void send(NotificationCommand command) {
-        if (!properties.enabled() || properties.botToken().isBlank() || command.text().isBlank()) {
+        if (!properties.enabled() || command.text().isBlank()) {
+            return;
+        }
+
+        if (!properties.stubMode() && properties.botToken().isBlank()) {
             return;
         }
 

@@ -24,6 +24,7 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
     private static final Pattern LOCAL_DATE_PATTERN = Pattern.compile("\\b(\\d{1,2})\\.(\\d{1,2})(?:\\.(\\d{4}))?\\b");
     private static final Pattern TIME_PATTERN = Pattern.compile("(?iu)(?:\\b(?:в|at)\\s*)?(\\d{1,2})(?::(\\d{2}))\\b");
     private static final Pattern HOUR_ONLY_PATTERN = Pattern.compile("(?iu)\\b(?:в|at)\\s*(\\d{1,2})\\b");
+    private static final Pattern LOCATION_PATTERN = Pattern.compile("(?iu)\\b(?:в|at)\\s+(офисе|zoom|online|онлайн)\\b");
 
     private final GeminiProperties properties;
     private final GeminiInterpretationMapper interpretationMapper;
@@ -102,19 +103,30 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
             entities.put("startDate", startDate.toString());
         }
 
-        LocalTime startTime = extractTime(normalizedText);
-        if (startTime == null) {
-            if (containsAny(normalizedText, "утром", "днем", "днём", "вечером", "morning", "afternoon", "evening")) {
-                ambiguityMarkers.add("time_is_range");
-            } else {
-                missingFields.add("time");
-            }
+        boolean allDay = containsAny(normalizedText, "весь день", "на весь день", "all day");
+        if (allDay) {
+            entities.put("allDay", "true");
         } else {
-            entities.put("startTime", startTime.toString());
+            LocalTime startTime = extractTime(normalizedText);
+            if (startTime == null) {
+                if (containsAny(normalizedText, "утром", "днем", "днём", "вечером", "morning", "afternoon", "evening")) {
+                    ambiguityMarkers.add("time_is_range");
+                } else {
+                    missingFields.add("time");
+                }
+            } else {
+                entities.put("startTime", startTime.toString());
+                entities.put("allDay", "false");
+            }
+        }
+
+        String location = extractLocation(originalText);
+        if (location != null && !location.isBlank()) {
+            entities.put("location", location);
         }
 
         boolean safeToExecute = missingFields.isEmpty() && ambiguityMarkers.isEmpty();
-        double confidence = safeToExecute ? 0.88d : 0.67d;
+        double confidence = safeToExecute ? 0.90d : 0.68d;
 
         return new GeminiGenerateContentResponse(
                 "CREATE_CALENDAR_EVENT",
@@ -139,17 +151,33 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
                 "напомни",
                 "remind",
                 "запланиру",
-                "schedule"
+                "schedule",
+                "добавь",
+                "создай"
         );
     }
 
     private String extractTitle(String originalText) {
-        String cleaned = originalText
-                .replaceAll("(?iu)\\b(создай|добавь|запланируй|напомни|schedule|create|add|meeting|event|встречу|встреча|созвон|в календарь)\\b", " ")
-                .replaceAll("(?iu)\\b(сегодня|завтра|today|tomorrow)\\b", " ")
-                .replaceAll("(?iu)\\b(?:в|at)\\s*\\d{1,2}(?::\\d{2})?\\b", " ")
-                .replaceAll("\\b\\d{1,2}\\.\\d{1,2}(?:\\.\\d{4})?\\b", " ")
-                .replaceAll("\\b\\d{4}-\\d{2}-\\d{2}\\b", " ")
+        String cleaned = originalText;
+        for (String phrase : List.of(
+                "создай", "добавь", "запланируй", "напомни",
+                "schedule", "create", "add",
+                "meeting", "event",
+                "встречу", "встреча", "созвон",
+                "в календарь", "напоминание",
+                "сегодня", "завтра", "today", "tomorrow",
+                "весь день", "all day",
+                "утром", "днем", "днём", "вечером",
+                "morning", "afternoon", "evening"
+        )) {
+            cleaned = stripPhraseIgnoreCase(cleaned, phrase);
+        }
+
+        cleaned = cleaned
+                .replaceAll("(?iu)(?:в|at)\\s*\\d{1,2}(?::\\d{2})?", " ")
+                .replaceAll("\\d{1,2}\\.\\d{1,2}(?:\\.\\d{4})?", " ")
+                .replaceAll("\\d{4}-\\d{2}-\\d{2}", " ")
+                .replaceAll("(?iu)(?:в|at)\\s+(офисе|zoom|online|онлайн)", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
 
@@ -157,7 +185,10 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
     }
 
     private LocalDate extractDate(String normalizedText, IntentInterpretationRequest request) {
-        LocalDate today = LocalDate.now(request.userContext().preferredTimezone().toZoneId());
+        LocalDate today = request.message()
+                .receivedAt()
+                .atZone(request.userContext().preferredTimezone().toZoneId())
+                .toLocalDate();
         if (containsAny(normalizedText, "завтра", "tomorrow")) {
             return today.plusDays(1);
         }
@@ -198,6 +229,14 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         return null;
     }
 
+    private String extractLocation(String originalText) {
+        Matcher matcher = LOCATION_PATTERN.matcher(originalText);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
+    }
+
     private boolean containsAny(String normalizedText, String... candidates) {
         for (String candidate : candidates) {
             if (normalizedText.contains(candidate)) {
@@ -205,5 +244,9 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
             }
         }
         return false;
+    }
+
+    private String stripPhraseIgnoreCase(String text, String phrase) {
+        return text.replaceAll("(?iu)" + Pattern.quote(phrase), " ");
     }
 }

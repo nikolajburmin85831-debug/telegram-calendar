@@ -13,6 +13,7 @@ public record CalendarEventDraft(
         String description,
         ZonedDateTime start,
         ZonedDateTime end,
+        boolean allDay,
         Timezone timezone,
         RecurrenceRule recurrenceRule,
         String location,

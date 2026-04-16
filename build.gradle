@@ -32,6 +32,11 @@ def configureJvmProject = { Project project ->
     project.tasks.withType(Test).configureEach {
         useJUnitPlatform()
     }
+
+    project.dependencies {
+        testImplementation 'org.junit.jupiter:junit-jupiter'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
 }
 
 configure(subprojects.findAll { it.name != 'app-ec2' }) { Project project ->

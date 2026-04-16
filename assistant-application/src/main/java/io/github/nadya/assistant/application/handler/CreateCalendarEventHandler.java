@@ -4,16 +4,20 @@ import io.github.nadya.assistant.application.command.MessageHandlingContext;
 import io.github.nadya.assistant.application.result.HandlingOutcome;
 import io.github.nadya.assistant.domain.calendar.CalendarEventDraft;
 import io.github.nadya.assistant.domain.calendar.CalendarEventReference;
-import io.github.nadya.assistant.domain.conversation.ConversationState;
 import io.github.nadya.assistant.domain.execution.ExecutionResult;
 import io.github.nadya.assistant.ports.out.CalendarPort;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.Map;
 
 public final class CreateCalendarEventHandler {
+
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
     private final CalendarPort calendarPort;
 
@@ -25,10 +29,9 @@ public final class CreateCalendarEventHandler {
         CalendarEventDraft draft = buildDraft(context);
         CalendarEventReference reference = calendarPort.createEvent(draft);
 
-        String summary = "Событие \"%s\" создано.".formatted(draft.title());
         ExecutionResult executionResult = ExecutionResult.completed(
                 reference.externalId(),
-                summary,
+                buildUserSummary(draft),
                 "calendar_event_created"
         );
 
@@ -36,25 +39,44 @@ public final class CreateCalendarEventHandler {
     }
 
     private CalendarEventDraft buildDraft(MessageHandlingContext context) {
-        String title = context.interpretation().assistantIntent().entities().getOrDefault("title", context.message().text());
-        LocalDate startDate = LocalDate.parse(context.interpretation().assistantIntent().entities().get("startDate"));
-        LocalTime startTime = LocalTime.parse(context.interpretation().assistantIntent().entities().get("startTime"));
-        ZonedDateTime start = ZonedDateTime.of(startDate, startTime, context.userContext().preferredTimezone().toZoneId());
-        ZonedDateTime end = start.plus(context.userContext().defaultEventDuration());
+        Map<String, String> entities = context.interpretation().assistantIntent().entities();
+        String title = entities.getOrDefault("title", context.message().text());
+        LocalDate startDate = LocalDate.parse(entities.get("startDate"));
+        boolean allDay = Boolean.parseBoolean(entities.getOrDefault("allDay", "false"));
+
+        ZonedDateTime start;
+        ZonedDateTime end;
+        if (allDay) {
+            start = startDate.atStartOfDay(context.userContext().preferredTimezone().toZoneId());
+            end = start.plusDays(1);
+        } else {
+            LocalTime startTime = LocalTime.parse(entities.get("startTime"));
+            start = ZonedDateTime.of(startDate, startTime, context.userContext().preferredTimezone().toZoneId());
+            end = start.plus(context.userContext().defaultEventDuration());
+        }
 
         LinkedHashMap<String, String> metadata = new LinkedHashMap<>();
         metadata.put("sourceMessageId", context.message().externalMessageId());
+        metadata.put("internalMessageId", context.message().internalMessageId());
+        metadata.put("conversationId", context.message().conversationId());
         metadata.put("channel", context.message().channelType().name());
 
         return new CalendarEventDraft(
                 title,
-                "Created from message: " + context.message().text(),
+                "Created from assistant request: " + context.message().text(),
                 start,
                 end,
+                allDay,
                 context.userContext().preferredTimezone(),
                 null,
-                null,
+                entities.get("location"),
                 metadata
         );
+    }
+
+    private String buildUserSummary(CalendarEventDraft draft) {
+        String datePart = DATE_FORMATTER.format(draft.start());
+        String timePart = draft.allDay() ? "на весь день" : "в " + TIME_FORMATTER.format(draft.start());
+        return "Создала событие \"%s\" на %s %s.".formatted(draft.title(), datePart, timePart);
     }
 }

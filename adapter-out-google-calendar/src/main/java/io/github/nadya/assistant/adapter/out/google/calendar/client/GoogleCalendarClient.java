@@ -10,6 +10,7 @@ public interface GoogleCalendarClient {
             String description,
             String startDateTime,
             String endDateTime,
+            boolean allDay,
             String timezone,
             String location
     ) {

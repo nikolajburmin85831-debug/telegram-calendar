@@ -1,5 +1,6 @@
 package io.github.nadya.assistant.application.orchestration;
 
+import io.github.nadya.assistant.application.service.ConfirmationPolicyService;
 import io.github.nadya.assistant.domain.conversation.ClarificationRequest;
 import io.github.nadya.assistant.domain.conversation.IncomingUserMessage;
 import io.github.nadya.assistant.domain.conversation.PendingConfirmation;
@@ -7,10 +8,10 @@ import io.github.nadya.assistant.domain.intent.IntentInterpretation;
 import io.github.nadya.assistant.domain.intent.IntentType;
 import io.github.nadya.assistant.domain.policy.ExecutionDecision;
 import io.github.nadya.assistant.domain.user.UserContext;
-import io.github.nadya.assistant.application.service.ConfirmationPolicyService;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 public final class IntentRoutingService {
 
@@ -26,10 +27,10 @@ public final class IntentRoutingService {
             IntentInterpretation interpretation
     ) {
         if (interpretation.intentType() == IntentType.UNKNOWN) {
-            return ExecutionDecision.reject("Пока поддерживается только создание событий календаря.");
+            return ExecutionDecision.reject("Пока я умею только создавать события и напоминания в календаре.");
         }
 
-        if (!interpretation.missingFields().isEmpty() || !interpretation.ambiguityMarkers().isEmpty() || !interpretation.safeToExecute()) {
+        if (requiresClarification(interpretation)) {
             return ExecutionDecision.askForClarification(buildClarificationRequest(message, interpretation));
         }
 
@@ -40,13 +41,20 @@ public final class IntentRoutingService {
         return ExecutionDecision.executeNow();
     }
 
+    private boolean requiresClarification(IntentInterpretation interpretation) {
+        return !interpretation.missingFields().isEmpty()
+                || !interpretation.ambiguityMarkers().isEmpty()
+                || !interpretation.safeToExecute();
+    }
+
     private ClarificationRequest buildClarificationRequest(
             IncomingUserMessage message,
             IntentInterpretation interpretation
     ) {
-        String primaryGap = !interpretation.missingFields().isEmpty()
-                ? interpretation.missingFields().get(0)
-                : interpretation.ambiguityMarkers().get(0);
+        List<String> problems = !interpretation.missingFields().isEmpty()
+                ? interpretation.missingFields()
+                : interpretation.ambiguityMarkers();
+        String primaryGap = problems.get(0);
 
         String question = switch (primaryGap) {
             case "date" -> "На какую дату создать событие?";
@@ -56,10 +64,8 @@ public final class IntentRoutingService {
         };
 
         return new ClarificationRequest(
-                "missing_or_ambiguous_data",
-                interpretation.missingFields().isEmpty()
-                        ? interpretation.ambiguityMarkers()
-                        : interpretation.missingFields(),
+                primaryGap,
+                problems,
                 question,
                 message.internalMessageId()
         );
@@ -71,14 +77,16 @@ public final class IntentRoutingService {
     ) {
         String title = interpretation.assistantIntent().entities().getOrDefault("title", "новое событие");
         String date = interpretation.assistantIntent().entities().getOrDefault("startDate", "без даты");
-        String time = interpretation.assistantIntent().entities().getOrDefault("startTime", "без времени");
-        String summary = "Создать событие \"%s\" на %s %s".formatted(title, date, time);
+        String timing = Boolean.parseBoolean(interpretation.assistantIntent().entities().getOrDefault("allDay", "false"))
+                ? "на весь день"
+                : "в " + interpretation.assistantIntent().entities().getOrDefault("startTime", "неизвестное время");
+        String summary = "Создать событие \"%s\" на %s %s".formatted(title, date, timing);
 
         return new PendingConfirmation(
                 "pending-" + message.internalMessageId(),
                 message.userId(),
                 summary,
-                summary + "? Ответьте 'да' или 'нет'.",
+                summary + "? Ответьте \"да\" или \"нет\".",
                 Instant.now().plus(30, ChronoUnit.MINUTES),
                 message.internalMessageId()
         );

@@ -21,10 +21,13 @@ public final class ClarificationHandler {
     }
 
     private ConversationStatus determineNextStatus(ClarificationRequest clarificationRequest) {
-        if (clarificationRequest.missingFields().contains("date")) {
+        if (clarificationRequest.missingFields().contains("date") || "date".equals(clarificationRequest.reason())) {
             return ConversationStatus.AWAITING_DATE;
         }
-        if (clarificationRequest.missingFields().contains("time") || clarificationRequest.reason().contains("time")) {
+        if (clarificationRequest.missingFields().contains("time")
+                || clarificationRequest.missingFields().contains("time_is_range")
+                || "time".equals(clarificationRequest.reason())
+                || "time_is_range".equals(clarificationRequest.reason())) {
             return ConversationStatus.AWAITING_TIME;
         }
         return ConversationStatus.IDLE;

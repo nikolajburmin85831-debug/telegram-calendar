@@ -65,18 +65,20 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
 
     @Override
     public ExecutionResult handle(IncomingUserMessage message) {
-        String idempotencyKey = message.channelType().name() + ":" + message.externalMessageId();
+        String idempotencyKey = buildIdempotencyKey(message);
         if (!idempotencyPort.registerIfAbsent(idempotencyKey)) {
+            auditPort.record(new AuditEntry(
+                    message.userId(),
+                    message.conversationId(),
+                    "DUPLICATE_MESSAGE_SKIPPED",
+                    Instant.now(),
+                    idempotencyKey
+            ));
             return ExecutionResult.skipped("duplicate_message_skipped");
         }
 
-        UserContext userContext = userContextPort.findByUserId(message.userId())
-                .orElseGet(() -> userContextPort.save(UserContext.defaultFor(message.userId(), message.conversationId())))
-                .withActiveConversationId(message.conversationId());
-        userContextPort.save(userContext);
-
-        ConversationState conversationState = conversationStatePort.findByConversationId(message.conversationId())
-                .orElseGet(() -> ConversationState.idle(message.conversationId(), message.userId()));
+        UserContext userContext = loadUserContext(message);
+        ConversationState conversationState = loadConversationState(message);
 
         try {
             // TODO: resume pending clarification/confirmation flows from persisted conversation state.
@@ -87,7 +89,7 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
             HandlingOutcome outcome = handleDecision(message, userContext, conversationState, interpretation, decision);
 
             conversationStatePort.save(outcome.nextConversationState());
-            sendUserNotificationIfPresent(message, outcome.executionResult());
+            notifyUser(message, outcome.executionResult());
             auditPort.record(new AuditEntry(
                     message.userId(),
                     message.conversationId(),
@@ -95,7 +97,6 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                     Instant.now(),
                     outcome.executionResult().auditDetails()
             ));
-
             return outcome.executionResult();
         } catch (RuntimeException exception) {
             ConversationState failedState = conversationState.failed();
@@ -105,7 +106,7 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                     "Не удалось обработать сообщение. Попробуйте повторить запрос позже.",
                     exception.getClass().getSimpleName()
             );
-            sendUserNotificationIfPresent(message, failure);
+            notifyUser(message, failure);
             auditPort.record(new AuditEntry(
                     message.userId(),
                     message.conversationId(),
@@ -115,6 +116,25 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
             ));
             return failure;
         }
+    }
+
+    private String buildIdempotencyKey(IncomingUserMessage message) {
+        String stableExternalId = message.externalMessageId().isBlank()
+                ? message.internalMessageId()
+                : message.externalMessageId();
+        return "%s:%s".formatted(message.channelType().name(), stableExternalId);
+    }
+
+    private UserContext loadUserContext(IncomingUserMessage message) {
+        UserContext userContext = userContextPort.findByUserId(message.userId())
+                .orElseGet(() -> UserContext.defaultFor(message.userId(), message.conversationId()))
+                .withActiveConversationId(message.conversationId());
+        return userContextPort.save(userContext);
+    }
+
+    private ConversationState loadConversationState(IncomingUserMessage message) {
+        return conversationStatePort.findByConversationId(message.conversationId())
+                .orElseGet(() -> ConversationState.idle(message.conversationId(), message.userId()));
     }
 
     private HandlingOutcome handleDecision(
@@ -141,7 +161,7 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         };
     }
 
-    private void sendUserNotificationIfPresent(IncomingUserMessage message, ExecutionResult executionResult) {
+    private void notifyUser(IncomingUserMessage message, ExecutionResult executionResult) {
         if (executionResult.userSummary() == null || executionResult.userSummary().isBlank()) {
             return;
         }

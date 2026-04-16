@@ -29,6 +29,10 @@ public final class GoogleCalendarAdapter implements CalendarPort {
 
     @Override
     public CalendarEventReference createEvent(CalendarEventDraft draft) {
+        if (!properties.enabled() && !properties.stubMode()) {
+            throw new IllegalStateException("Google Calendar adapter is disabled and stub mode is off");
+        }
+
         if (!properties.stubMode() && !oAuthSupport.isReady(properties)) {
             throw new IllegalStateException("Google Calendar adapter is enabled but OAuth is not configured");
         }
