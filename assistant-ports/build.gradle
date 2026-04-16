@@ -1,0 +1,5 @@
+description = 'Inbound and outbound ports for the assistant core.'
+
+dependencies {
+    api project(':assistant-domain')
+}

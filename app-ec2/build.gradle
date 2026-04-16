@@ -1,0 +1,19 @@
+description = 'Spring Boot runtime shell for EC2 deployment.'
+
+dependencies {
+    implementation project(':assistant-application')
+    implementation project(':assistant-ports')
+    implementation project(':adapter-in-telegram-polling')
+    implementation project(':adapter-out-gemini')
+    implementation project(':adapter-out-google-calendar')
+    implementation project(':adapter-out-persistence')
+    implementation project(':adapter-out-notification-telegram')
+
+    implementation 'org.springframework.boot:spring-boot-starter'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+application {
+    mainClass = 'io.github.nadya.assistant.app.ec2.AssistantEc2Application'
+}

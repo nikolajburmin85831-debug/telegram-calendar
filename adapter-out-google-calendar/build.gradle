@@ -1,0 +1,5 @@
+description = 'Google Calendar outbound adapter.'
+
+dependencies {
+    implementation project(':assistant-ports')
+}

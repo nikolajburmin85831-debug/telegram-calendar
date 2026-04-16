@@ -1,0 +1,5 @@
+description = 'Persistence adapters for conversation state, user context, idempotency, and audit.'
+
+dependencies {
+    implementation project(':assistant-ports')
+}

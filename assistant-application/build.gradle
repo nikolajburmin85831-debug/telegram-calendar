@@ -1,0 +1,6 @@
+description = 'Application services and orchestration for assistant use cases.'
+
+dependencies {
+    implementation project(':assistant-domain')
+    implementation project(':assistant-ports')
+}

@@ -1,0 +1,25 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode = RepositoriesMode.FAIL_ON_PROJECT_REPOS
+    repositories {
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'telegram-calendar'
+
+include 'assistant-domain'
+include 'assistant-ports'
+include 'assistant-application'
+include 'adapter-in-telegram-polling'
+include 'adapter-out-gemini'
+include 'adapter-out-google-calendar'
+include 'adapter-out-persistence'
+include 'adapter-out-notification-telegram'
+include 'app-ec2'

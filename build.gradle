@@ -1,0 +1,46 @@
+plugins {
+    id 'org.springframework.boot' version '3.5.13' apply false
+    id 'io.spring.dependency-management' version '1.1.7' apply false
+}
+
+group = 'io.github.nadya'
+version = '0.1.0-SNAPSHOT'
+
+ext {
+    springBootVersion = '3.5.13'
+}
+
+def configureJvmProject = { Project project ->
+    project.apply plugin: 'io.spring.dependency-management'
+
+    project.java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+
+    project.dependencyManagement {
+        imports {
+            mavenBom "org.springframework.boot:spring-boot-dependencies:${springBootVersion}"
+        }
+    }
+
+    project.tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+    }
+
+    project.tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+    }
+}
+
+configure(subprojects.findAll { it.name != 'app-ec2' }) { Project project ->
+    project.apply plugin: 'java-library'
+    configureJvmProject(project)
+}
+
+project(':app-ec2') { Project project ->
+    project.apply plugin: 'org.springframework.boot'
+    project.apply plugin: 'application'
+    configureJvmProject(project)
+}

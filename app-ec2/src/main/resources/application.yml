@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: telegram-calendar
+  main:
+    web-application-type: none
+
+assistant:
+  gemini:
+    model: gemini-2.5-flash
+    api-key: ""
+    stub-mode: true
+  google-calendar:
+    enabled: false
+    calendar-id: primary
+    stub-mode: true
+  telegram:
+    polling:
+      enabled: false
+      bot-token: ""
+      poll-interval: 5s
+      limit: 100
+    notification:
+      enabled: false
+      bot-token: ""

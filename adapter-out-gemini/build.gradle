@@ -1,0 +1,5 @@
+description = 'Gemini outbound adapter implementing the intent interpreter port.'
+
+dependencies {
+    implementation project(':assistant-ports')
+}

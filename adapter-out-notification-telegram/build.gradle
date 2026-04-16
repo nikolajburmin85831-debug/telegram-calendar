@@ -1,0 +1,5 @@
+description = 'Telegram outbound notification adapter.'
+
+dependencies {
+    implementation project(':assistant-ports')
+}
