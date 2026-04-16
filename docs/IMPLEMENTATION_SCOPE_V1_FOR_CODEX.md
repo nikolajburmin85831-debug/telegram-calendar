@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Use this file together with `assistant_core_architecture_spec_v2.md`.
+Use this file together with `assistant_core_architecture_spec_v3.md`.
 
 This document defines the **first implementation scope** for the project so the initial code generation stays narrow, realistic, and aligned with the architecture.
 
@@ -33,7 +33,7 @@ Do **not** implement Lambda or webhook support now.
 ## Source of truth
 
 Architecture source of truth:
-- `assistant_core_architecture_spec_v2.md`
+- `assistant_core_architecture_spec_v3.md`
 
 This implementation scope must follow that architecture.
 

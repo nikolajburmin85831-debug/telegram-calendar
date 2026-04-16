@@ -9,6 +9,7 @@ import io.github.nadya.assistant.application.result.HandlingOutcome;
 import io.github.nadya.assistant.domain.conversation.ConversationState;
 import io.github.nadya.assistant.domain.conversation.ConversationStatus;
 import io.github.nadya.assistant.domain.conversation.IncomingUserMessage;
+import io.github.nadya.assistant.domain.conversation.PendingAction;
 import io.github.nadya.assistant.domain.execution.ExecutionResult;
 import io.github.nadya.assistant.domain.intent.IntentInterpretation;
 import io.github.nadya.assistant.domain.policy.ExecutionDecision;
@@ -38,6 +39,9 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
     private final CreateCalendarEventHandler createCalendarEventHandler;
     private final ClarificationHandler clarificationHandler;
     private final PendingConfirmationHandler pendingConfirmationHandler;
+    private final PendingActionFactory pendingActionFactory;
+    private final PendingActionMergeService pendingActionMergeService;
+    private final ConversationControlService conversationControlService;
 
     public HandleIncomingMessageService(
             UserContextPort userContextPort,
@@ -49,7 +53,10 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
             IntentRoutingService intentRoutingService,
             CreateCalendarEventHandler createCalendarEventHandler,
             ClarificationHandler clarificationHandler,
-            PendingConfirmationHandler pendingConfirmationHandler
+            PendingConfirmationHandler pendingConfirmationHandler,
+            PendingActionFactory pendingActionFactory,
+            PendingActionMergeService pendingActionMergeService,
+            ConversationControlService conversationControlService
     ) {
         this.userContextPort = userContextPort;
         this.conversationStatePort = conversationStatePort;
@@ -61,6 +68,9 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         this.createCalendarEventHandler = createCalendarEventHandler;
         this.clarificationHandler = clarificationHandler;
         this.pendingConfirmationHandler = pendingConfirmationHandler;
+        this.pendingActionFactory = pendingActionFactory;
+        this.pendingActionMergeService = pendingActionMergeService;
+        this.conversationControlService = conversationControlService;
     }
 
     @Override
@@ -81,12 +91,10 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         ConversationState conversationState = loadConversationState(message);
 
         try {
-            // TODO: resume pending clarification/confirmation flows from persisted conversation state.
-            IntentInterpretation interpretation = intentInterpreterPort.interpret(
-                    new IntentInterpretationRequest(message, userContext, conversationState)
-            );
-            ExecutionDecision decision = intentRoutingService.decide(message, userContext, interpretation);
-            HandlingOutcome outcome = handleDecision(message, userContext, conversationState, interpretation, decision);
+            HandlingOutcome outcome = resumePendingIfPossible(message, userContext, conversationState);
+            if (outcome == null) {
+                outcome = handleNewMessage(message, userContext, conversationState);
+            }
 
             conversationStatePort.save(outcome.nextConversationState());
             notifyUser(message, outcome.executionResult());
@@ -137,8 +145,99 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                 .orElseGet(() -> ConversationState.idle(message.conversationId(), message.userId()));
     }
 
-    private HandlingOutcome handleDecision(
+    private HandlingOutcome resumePendingIfPossible(
             IncomingUserMessage message,
+            UserContext userContext,
+            ConversationState conversationState
+    ) {
+        if (conversationState.isAwaitingConfirmation()) {
+            return handlePendingConfirmation(message, userContext, conversationState);
+        }
+        if (conversationState.isAwaitingClarification()) {
+            return handlePendingClarification(message, userContext, conversationState);
+        }
+        return null;
+    }
+
+    private HandlingOutcome handleNewMessage(
+            IncomingUserMessage message,
+            UserContext userContext,
+            ConversationState conversationState
+    ) {
+        IntentInterpretation interpretation = intentInterpreterPort.interpret(
+                new IntentInterpretationRequest(message, userContext, conversationState)
+        );
+        ExecutionDecision decision = intentRoutingService.decide(message, userContext, interpretation);
+        return handleDecision(message, message, userContext, conversationState, interpretation, decision);
+    }
+
+    private HandlingOutcome handlePendingClarification(
+            IncomingUserMessage message,
+            UserContext userContext,
+            ConversationState conversationState
+    ) {
+        if (conversationControlService.isCancelCommand(message.text())) {
+            return cancellationOutcome(
+                    conversationState,
+                    "Хорошо, отменяю текущее действие.",
+                    "pending_clarification_cancelled"
+            );
+        }
+
+        PendingAction pendingAction = conversationState.pendingAction();
+        IntentInterpretation followUpInterpretation = intentInterpreterPort.interpret(
+                new IntentInterpretationRequest(message, userContext, conversationState)
+        );
+        IntentInterpretation mergedInterpretation = pendingActionMergeService.merge(
+                pendingAction,
+                conversationState.clarificationRequest(),
+                followUpInterpretation
+        );
+        ExecutionDecision decision = intentRoutingService.decide(message, userContext, mergedInterpretation);
+        return handleDecision(
+                message,
+                pendingAction.sourceMessage(),
+                userContext,
+                conversationState,
+                mergedInterpretation,
+                decision
+        );
+    }
+
+    private HandlingOutcome handlePendingConfirmation(
+            IncomingUserMessage message,
+            UserContext userContext,
+            ConversationState conversationState
+    ) {
+        return switch (conversationControlService.resolveConfirmationReply(message.text())) {
+            case APPROVE -> handleDecision(
+                    message,
+                    conversationState.pendingAction().sourceMessage(),
+                    userContext,
+                    conversationState,
+                    conversationState.pendingAction().interpretation(),
+                    ExecutionDecision.executeNow()
+            );
+            case REJECT -> cancellationOutcome(
+                    conversationState,
+                    "Хорошо, не выполняю это действие.",
+                    "pending_confirmation_rejected"
+            );
+            case CANCEL -> cancellationOutcome(
+                    conversationState,
+                    "Хорошо, отменяю текущее действие.",
+                    "pending_confirmation_cancelled"
+            );
+            case INVALID -> pendingConfirmationHandler.handleInvalidResponse(
+                    conversationState,
+                    conversationState.pendingConfirmation()
+            );
+        };
+    }
+
+    private HandlingOutcome handleDecision(
+            IncomingUserMessage triggeringMessage,
+            IncomingUserMessage sourceMessage,
             UserContext userContext,
             ConversationState conversationState,
             IntentInterpretation interpretation,
@@ -149,16 +248,41 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                 ConversationState executingState = conversationState.executing();
                 conversationStatePort.save(executingState);
                 yield createCalendarEventHandler.handle(
-                        new MessageHandlingContext(message, userContext, executingState, interpretation)
+                        new MessageHandlingContext(
+                                triggeringMessage,
+                                sourceMessage,
+                                userContext,
+                                executingState,
+                                interpretation
+                        )
                 );
             }
-            case ASK_FOR_CLARIFICATION -> clarificationHandler.handle(conversationState, decision.clarificationRequest());
-            case ASK_FOR_CONFIRMATION -> pendingConfirmationHandler.handle(conversationState, decision.pendingConfirmation());
+            case ASK_FOR_CLARIFICATION -> clarificationHandler.handle(
+                    conversationState,
+                    decision.clarificationRequest(),
+                    pendingActionFactory.create(sourceMessage, interpretation)
+            );
+            case ASK_FOR_CONFIRMATION -> pendingConfirmationHandler.handle(
+                    conversationState,
+                    decision.pendingConfirmation(),
+                    pendingActionFactory.create(sourceMessage, interpretation)
+            );
             case REJECT, DEFER -> new HandlingOutcome(
                     ExecutionResult.rejected(decision.rejectionReason(), "intent_rejected"),
                     conversationState.failed()
             );
         };
+    }
+
+    private HandlingOutcome cancellationOutcome(
+            ConversationState conversationState,
+            String userSummary,
+            String auditDetails
+    ) {
+        return new HandlingOutcome(
+                ExecutionResult.cancelled(userSummary, auditDetails),
+                conversationState.cancelled()
+        );
     }
 
     private void notifyUser(IncomingUserMessage message, ExecutionResult executionResult) {

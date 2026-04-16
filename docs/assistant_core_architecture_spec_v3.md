@@ -1,9 +1,9 @@
-# Assistant Core Architecture Specification v2
+# Assistant Core Architecture Specification v3
 ## EC2-first, Lambda-ready
 
 ## 1. Статус документа
 
-**Статус:** Draft v2  
+**Статус:** Draft v3  
 **Аудитория:** владелец проекта, будущая реализация, будущая архитектурная ревизия  
 **Цель:** зафиксировать архитектуру personal assistant core, который на первом этапе работает как Telegram → Google Calendar ассистент на EC2, но спроектирован так, чтобы позже можно было без крупных переделок попробовать Lambda и при необходимости развивать проект дальше.
 

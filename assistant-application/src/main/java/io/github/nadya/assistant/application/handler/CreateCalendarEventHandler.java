@@ -40,7 +40,7 @@ public final class CreateCalendarEventHandler {
 
     private CalendarEventDraft buildDraft(MessageHandlingContext context) {
         Map<String, String> entities = context.interpretation().assistantIntent().entities();
-        String title = entities.getOrDefault("title", context.message().text());
+        String title = entities.getOrDefault("title", context.sourceMessage().text());
         LocalDate startDate = LocalDate.parse(entities.get("startDate"));
         boolean allDay = Boolean.parseBoolean(entities.getOrDefault("allDay", "false"));
 
@@ -56,14 +56,14 @@ public final class CreateCalendarEventHandler {
         }
 
         LinkedHashMap<String, String> metadata = new LinkedHashMap<>();
-        metadata.put("sourceMessageId", context.message().externalMessageId());
-        metadata.put("internalMessageId", context.message().internalMessageId());
-        metadata.put("conversationId", context.message().conversationId());
-        metadata.put("channel", context.message().channelType().name());
+        metadata.put("sourceMessageId", context.sourceMessage().externalMessageId());
+        metadata.put("internalMessageId", context.sourceMessage().internalMessageId());
+        metadata.put("conversationId", context.sourceMessage().conversationId());
+        metadata.put("channel", context.sourceMessage().channelType().name());
 
         return new CalendarEventDraft(
                 title,
-                "Created from assistant request: " + context.message().text(),
+                "Created from assistant request: " + context.sourceMessage().text(),
                 start,
                 end,
                 allDay,

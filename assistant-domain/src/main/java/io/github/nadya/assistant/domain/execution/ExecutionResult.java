@@ -28,6 +28,10 @@ public record ExecutionResult(
         return new ExecutionResult(false, null, userSummary, auditDetails, null);
     }
 
+    public static ExecutionResult cancelled(String userSummary, String auditDetails) {
+        return new ExecutionResult(true, null, userSummary, auditDetails, null);
+    }
+
     public static ExecutionResult skipped(String auditDetails) {
         return new ExecutionResult(true, null, null, auditDetails, null);
     }

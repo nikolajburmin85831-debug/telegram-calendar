@@ -74,7 +74,7 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         String originalText = request.message().text().trim();
         String normalizedText = originalText.toLowerCase(Locale.ROOT);
 
-        if (!looksLikeCalendarIntent(normalizedText)) {
+        if (!looksLikeCalendarIntent(normalizedText, request)) {
             return new GeminiGenerateContentResponse(
                     "UNKNOWN",
                     Map.of(),
@@ -138,7 +138,11 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         );
     }
 
-    private boolean looksLikeCalendarIntent(String normalizedText) {
+    private boolean looksLikeCalendarIntent(String normalizedText, IntentInterpretationRequest request) {
+        if (request.conversationState().isAwaitingClarification()) {
+            return true;
+        }
+
         return containsAny(
                 normalizedText,
                 "встреч",

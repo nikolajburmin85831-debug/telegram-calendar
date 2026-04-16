@@ -4,15 +4,26 @@ import io.github.nadya.assistant.application.result.HandlingOutcome;
 import io.github.nadya.assistant.domain.conversation.ClarificationRequest;
 import io.github.nadya.assistant.domain.conversation.ConversationState;
 import io.github.nadya.assistant.domain.conversation.ConversationStatus;
+import io.github.nadya.assistant.domain.conversation.PendingAction;
 import io.github.nadya.assistant.domain.execution.ExecutionResult;
 
 public final class ClarificationHandler {
 
-    public HandlingOutcome handle(ConversationState currentState, ClarificationRequest clarificationRequest) {
+    public HandlingOutcome handle(
+            ConversationState currentState,
+            ClarificationRequest clarificationRequest,
+            PendingAction pendingAction
+    ) {
         ConversationStatus nextStatus = determineNextStatus(clarificationRequest);
-        ConversationState nextState = currentState.awaiting(nextStatus, clarificationRequest);
-        ExecutionResult executionResult = ExecutionResult.clarificationRequested(
+        ClarificationRequest persistedRequest = new ClarificationRequest(
+                clarificationRequest.reason(),
+                clarificationRequest.missingFields(),
                 clarificationRequest.userFacingQuestion(),
+                pendingAction.pendingActionId()
+        );
+        ConversationState nextState = currentState.awaiting(nextStatus, persistedRequest, pendingAction);
+        ExecutionResult executionResult = ExecutionResult.clarificationRequested(
+                persistedRequest.userFacingQuestion(),
                 "clarification_requested",
                 nextStatus.name()
         );

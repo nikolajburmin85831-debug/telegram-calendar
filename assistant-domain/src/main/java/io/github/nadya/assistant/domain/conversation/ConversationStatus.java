@@ -7,5 +7,6 @@ public enum ConversationStatus {
     AWAITING_CONFIRMATION,
     EXECUTING_ACTION,
     COMPLETED,
-    FAILED
+    FAILED,
+    CANCELLED
 }

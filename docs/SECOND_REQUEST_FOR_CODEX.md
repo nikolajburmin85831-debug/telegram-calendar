@@ -4,7 +4,7 @@
 
 Use this request **after** Codex has already created the initial Gradle multi-module skeleton from:
 
-- `docs/assistant_core_architecture_spec_v2.md`
+- `docs/assistant_core_architecture_spec_v3.md`
 - `docs/IMPLEMENTATION_SCOPE_V1_FOR_CODEX.md`
 
 This second request moves the project from **architectural skeleton** to the **first real working vertical slice**.
@@ -18,7 +18,7 @@ The goal is to make the first end-to-end flow concrete while preserving the arch
 
 Read the existing project structure and the architecture documents:
 
-- `docs/assistant_core_architecture_spec_v2.md`
+- `docs/assistant_core_architecture_spec_v3.md`
 - `docs/IMPLEMENTATION_SCOPE_V1_FOR_CODEX.md`
 
 Then continue implementation from the current skeleton.

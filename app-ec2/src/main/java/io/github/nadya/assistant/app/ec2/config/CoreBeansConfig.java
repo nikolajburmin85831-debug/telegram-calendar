@@ -5,7 +5,10 @@ import io.github.nadya.assistant.application.handler.CreateCalendarEventHandler;
 import io.github.nadya.assistant.application.handler.PendingConfirmationHandler;
 import io.github.nadya.assistant.application.orchestration.IntentRoutingService;
 import io.github.nadya.assistant.application.service.ConfirmationPolicyService;
+import io.github.nadya.assistant.application.service.ConversationControlService;
 import io.github.nadya.assistant.application.service.HandleIncomingMessageService;
+import io.github.nadya.assistant.application.service.PendingActionFactory;
+import io.github.nadya.assistant.application.service.PendingActionMergeService;
 import io.github.nadya.assistant.ports.in.HandleIncomingMessageUseCase;
 import io.github.nadya.assistant.ports.out.AuditPort;
 import io.github.nadya.assistant.ports.out.CalendarPort;
@@ -46,6 +49,21 @@ public class CoreBeansConfig {
     }
 
     @Bean
+    PendingActionFactory pendingActionFactory() {
+        return new PendingActionFactory();
+    }
+
+    @Bean
+    PendingActionMergeService pendingActionMergeService() {
+        return new PendingActionMergeService();
+    }
+
+    @Bean
+    ConversationControlService conversationControlService() {
+        return new ConversationControlService();
+    }
+
+    @Bean
     HandleIncomingMessageUseCase handleIncomingMessageUseCase(
             UserContextPort userContextPort,
             ConversationStatePort conversationStatePort,
@@ -56,7 +74,10 @@ public class CoreBeansConfig {
             IntentRoutingService intentRoutingService,
             CreateCalendarEventHandler createCalendarEventHandler,
             ClarificationHandler clarificationHandler,
-            PendingConfirmationHandler pendingConfirmationHandler
+            PendingConfirmationHandler pendingConfirmationHandler,
+            PendingActionFactory pendingActionFactory,
+            PendingActionMergeService pendingActionMergeService,
+            ConversationControlService conversationControlService
     ) {
         return new HandleIncomingMessageService(
                 userContextPort,
@@ -68,7 +89,10 @@ public class CoreBeansConfig {
                 intentRoutingService,
                 createCalendarEventHandler,
                 clarificationHandler,
-                pendingConfirmationHandler
+                pendingConfirmationHandler,
+                pendingActionFactory,
+                pendingActionMergeService,
+                conversationControlService
         );
     }
 }

@@ -11,6 +11,7 @@ public record ConversationState(
         ConversationStatus status,
         ClarificationRequest clarificationRequest,
         PendingConfirmation pendingConfirmation,
+        PendingAction pendingAction,
         Instant updatedAt
 ) {
 
@@ -25,33 +26,73 @@ public record ConversationState(
     }
 
     public static ConversationState idle(String conversationId, UserIdentity userId) {
-        return new ConversationState(conversationId, userId, ConversationStatus.IDLE, null, null, Instant.now());
+        return new ConversationState(conversationId, userId, ConversationStatus.IDLE, null, null, null, Instant.now());
     }
 
-    public ConversationState awaiting(ConversationStatus nextStatus, ClarificationRequest nextClarificationRequest) {
-        return new ConversationState(conversationId, userId, nextStatus, nextClarificationRequest, null, Instant.now());
+    public boolean isAwaitingClarification() {
+        return (status == ConversationStatus.AWAITING_DATE || status == ConversationStatus.AWAITING_TIME)
+                && clarificationRequest != null
+                && pendingAction != null;
     }
 
-    public ConversationState awaitingConfirmation(PendingConfirmation nextPendingConfirmation) {
+    public boolean isAwaitingConfirmation() {
+        return status == ConversationStatus.AWAITING_CONFIRMATION
+                && pendingConfirmation != null
+                && pendingAction != null;
+    }
+
+    public ConversationState awaiting(
+            ConversationStatus nextStatus,
+            ClarificationRequest nextClarificationRequest,
+            PendingAction nextPendingAction
+    ) {
+        return new ConversationState(
+                conversationId,
+                userId,
+                nextStatus,
+                nextClarificationRequest,
+                null,
+                nextPendingAction,
+                Instant.now()
+        );
+    }
+
+    public ConversationState awaitingConfirmation(
+            PendingConfirmation nextPendingConfirmation,
+            PendingAction nextPendingAction
+    ) {
         return new ConversationState(
                 conversationId,
                 userId,
                 ConversationStatus.AWAITING_CONFIRMATION,
                 null,
                 nextPendingConfirmation,
+                nextPendingAction,
                 Instant.now()
         );
     }
 
     public ConversationState executing() {
-        return new ConversationState(conversationId, userId, ConversationStatus.EXECUTING_ACTION, clarificationRequest, pendingConfirmation, Instant.now());
+        return new ConversationState(
+                conversationId,
+                userId,
+                ConversationStatus.EXECUTING_ACTION,
+                null,
+                null,
+                pendingAction,
+                Instant.now()
+        );
     }
 
     public ConversationState completed() {
-        return new ConversationState(conversationId, userId, ConversationStatus.COMPLETED, null, null, Instant.now());
+        return new ConversationState(conversationId, userId, ConversationStatus.COMPLETED, null, null, null, Instant.now());
     }
 
     public ConversationState failed() {
-        return new ConversationState(conversationId, userId, ConversationStatus.FAILED, null, null, Instant.now());
+        return new ConversationState(conversationId, userId, ConversationStatus.FAILED, null, null, null, Instant.now());
+    }
+
+    public ConversationState cancelled() {
+        return new ConversationState(conversationId, userId, ConversationStatus.CANCELLED, null, null, null, Instant.now());
     }
 }
