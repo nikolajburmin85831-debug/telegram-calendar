@@ -24,15 +24,24 @@ public final class OutboundHttpClientFactory {
         HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(properties.connectTimeoutSeconds()));
 
-        if (!properties.proxy().enabled() || properties.proxy().url().isBlank()) {
+        if (properties.proxy().enabled() && !properties.proxy().url().isBlank()) {
+            ParsedProxy parsedProxy = parseProxy(properties.proxy());
+            builder.proxy(ProxySelector.of(new InetSocketAddress(parsedProxy.host(), parsedProxy.port())));
+            if (!parsedProxy.username().isBlank()) {
+                builder.authenticator(new ProxyAuthenticator(parsedProxy.username(), parsedProxy.password()));
+            }
             return builder.build();
         }
 
-        ParsedProxy parsedProxy = parseProxy(properties.proxy());
-        builder.proxy(ProxySelector.of(new InetSocketAddress(parsedProxy.host(), parsedProxy.port())));
-        if (!parsedProxy.username().isBlank()) {
-            builder.authenticator(new ProxyAuthenticator(parsedProxy.username(), parsedProxy.password()));
+        if (properties.useSystemProxy()) {
+            System.setProperty("java.net.useSystemProxies", "true");
+            ProxySelector systemProxySelector = ProxySelector.getDefault();
+            if (systemProxySelector != null) {
+                builder.proxy(systemProxySelector);
+            }
+            return builder.build();
         }
+
         return builder.build();
     }
 

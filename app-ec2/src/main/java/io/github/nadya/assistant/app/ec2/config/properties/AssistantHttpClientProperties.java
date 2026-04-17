@@ -5,6 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "assistant.http")
 public record AssistantHttpClientProperties(
         long connectTimeoutSeconds,
+        boolean useSystemProxy,
         Proxy proxy
 ) {
 

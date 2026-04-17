@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+io.github.nadya.assistant.app.ec2.config.http.SystemProxyEnvironmentPostProcessor

@@ -7,6 +7,7 @@ spring:
 assistant:
   http:
     connect-timeout-seconds: ${HTTP_CLIENT_CONNECT_TIMEOUT_SECONDS:15}
+    use-system-proxy: ${HTTP_USE_SYSTEM_PROXY:false}
     proxy:
       enabled: ${HTTP_PROXY_ENABLED:false}
       url: ${HTTP_PROXY_URL:${HTTPS_PROXY:}}
