@@ -18,7 +18,6 @@ config/private/
 tokens/
 token.json
 credentials.json
-oauth/
 *.token
 *.credentials.json
 
