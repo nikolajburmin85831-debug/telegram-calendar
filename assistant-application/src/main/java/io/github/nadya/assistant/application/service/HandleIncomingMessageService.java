@@ -29,6 +29,8 @@ import java.time.Instant;
 
 public final class HandleIncomingMessageService implements HandleIncomingMessageUseCase {
 
+    private static final System.Logger LOGGER = System.getLogger(HandleIncomingMessageService.class.getName());
+
     private final UserContextPort userContextPort;
     private final ConversationStatePort conversationStatePort;
     private final IdempotencyPort idempotencyPort;
@@ -81,8 +83,21 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
 
     @Override
     public ExecutionResult handle(IncomingUserMessage message) {
+        LOGGER.log(
+                System.Logger.Level.DEBUG,
+                "Handling incoming message {0} for conversation {1}: {2}",
+                message.externalMessageId(),
+                message.conversationId(),
+                message.text()
+        );
         String idempotencyKey = buildIdempotencyKey(message);
         if (!idempotencyPort.registerIfAbsent(idempotencyKey)) {
+            LOGGER.log(
+                    System.Logger.Level.DEBUG,
+                    "Skipping duplicate message {0} for conversation {1}",
+                    message.externalMessageId(),
+                    message.conversationId()
+            );
             auditPort.record(new AuditEntry(
                     message.userId(),
                     message.conversationId(),
@@ -113,6 +128,11 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
             ));
             return outcome.executionResult();
         } catch (RuntimeException exception) {
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "Message handling failed for conversation " + message.conversationId(),
+                    exception
+            );
             ConversationState failedState = conversationState.failed();
             conversationStatePort.save(failedState);
 
@@ -177,6 +197,7 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         IntentInterpretation interpretation = intentInterpreterPort.interpret(
                 new IntentInterpretationRequest(message, userContext, conversationState)
         );
+        logInterpretation("new_message", message, interpretation);
         ExecutionDecision decision = intentRoutingService.decide(message, userContext, interpretation);
         return handleDecision(message, message, userContext, conversationState, interpretation, decision);
     }
@@ -206,6 +227,7 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                 conversationState.clarificationRequest(),
                 followUpInterpretation
         );
+        logInterpretation("clarification_follow_up", message, mergedInterpretation);
         ExecutionDecision decision = intentRoutingService.decide(message, userContext, mergedInterpretation);
         return handleDecision(
                 message,
@@ -266,6 +288,13 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
             IntentInterpretation interpretation,
             ExecutionDecision decision
     ) {
+        LOGGER.log(
+                System.Logger.Level.DEBUG,
+                "Routing decision {0} for conversation {1}, intent {2}",
+                decision.outcome(),
+                conversationState.conversationId(),
+                interpretation.intentType()
+        );
         return switch (decision.outcome()) {
             case EXECUTE_NOW -> {
                 ConversationState executingState = conversationState.executing();
@@ -340,5 +369,19 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                 message.conversationId(),
                 executionResult.userSummary()
         ));
+    }
+
+    private void logInterpretation(String stage, IncomingUserMessage message, IntentInterpretation interpretation) {
+        LOGGER.log(
+                System.Logger.Level.DEBUG,
+                "Interpretation at {0} for conversation {1}: intent={2}, entities={3}, missing={4}, ambiguity={5}, safeToExecute={6}",
+                stage,
+                message.conversationId(),
+                interpretation.intentType(),
+                interpretation.assistantIntent().entities(),
+                interpretation.missingFields(),
+                interpretation.ambiguityMarkers(),
+                interpretation.safeToExecute()
+        );
     }
 }
