@@ -8,7 +8,10 @@ import io.github.nadya.assistant.adapter.out.gemini.config.GeminiProperties;
 import io.github.nadya.assistant.adapter.out.gemini.dto.GeminiGenerateContentRequest;
 import io.github.nadya.assistant.adapter.out.gemini.dto.GeminiGenerateContentResponse;
 import io.github.nadya.assistant.adapter.out.gemini.mapper.GeminiInterpretationMapper;
+import io.github.nadya.assistant.domain.common.ConfidenceScore;
+import io.github.nadya.assistant.domain.intent.AssistantIntent;
 import io.github.nadya.assistant.domain.intent.IntentInterpretation;
+import io.github.nadya.assistant.domain.intent.IntentType;
 import io.github.nadya.assistant.ports.out.IntentInterpretationRequest;
 import io.github.nadya.assistant.ports.out.IntentInterpreterPort;
 
@@ -79,7 +82,7 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         );
 
         GeminiGenerateContentResponse rawResponse = execute(contentRequest, request);
-        return interpretationMapper.map(rawResponse);
+        return stabilizeInterpretation(interpretationMapper.map(rawResponse), request);
     }
 
     private String buildPrompt(IntentInterpretationRequest request) {
@@ -106,6 +109,7 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
                 - Only use ambiguityMarkers values from: ["time_is_range"].
                 - If date and time are explicitly present, missingFields must be [] and ambiguityMarkers must be [].
                 - Requests like "Запиши меня к стоматологу на завтра в 14" are calendar events.
+                - Short task-like phrases such as "купи молоко", "позвонить маме", "заехать в аптеку" should be treated as calendar/reminder intents rather than UNKNOWN.
                 - For that example, title should be "к стоматологу", startDate should be tomorrow, startTime should be "14:00", allDay should be "false".
                 Message: %s
                 Conversation status: %s
@@ -318,6 +322,72 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         );
     }
 
+    private IntentInterpretation stabilizeInterpretation(
+            IntentInterpretation interpretation,
+            IntentInterpretationRequest request
+    ) {
+        if (interpretation.intentType() != IntentType.UNKNOWN) {
+            return interpretation;
+        }
+
+        String originalText = request.message().text().trim();
+        if (!looksLikeImplicitTaskShorthand(originalText)) {
+            return interpretation;
+        }
+
+        String normalizedText = originalText.toLowerCase(Locale.ROOT);
+        LinkedHashMap<String, String> entities = new LinkedHashMap<>();
+        String title = normalizeImplicitTaskTitle(originalText);
+        if (!title.isBlank()) {
+            entities.put("title", title);
+        }
+
+        LocalDate startDate = extractDate(normalizedText, request);
+        if (startDate != null) {
+            entities.put("startDate", startDate.toString());
+        }
+
+        boolean allDay = containsAny(normalizedText, "весь день", "на весь день", "all day");
+        if (allDay) {
+            entities.put("allDay", "true");
+        } else {
+            LocalTime startTime = extractTime(normalizedText);
+            if (startTime != null) {
+                entities.put("startTime", startTime.toString());
+            }
+            entities.put("allDay", "false");
+        }
+
+        ArrayList<String> ambiguityMarkers = new ArrayList<>();
+        if (!allDay && !entities.containsKey("startTime")
+                && containsAny(normalizedText, "утром", "днем", "днём", "вечером", "morning", "afternoon", "evening")) {
+            ambiguityMarkers.add("time_is_range");
+        }
+
+        ArrayList<String> missingFields = new ArrayList<>();
+        if (entities.getOrDefault("title", "").isBlank()) {
+            missingFields.add("title");
+        }
+        if (entities.getOrDefault("startDate", "").isBlank()) {
+            missingFields.add("date");
+        }
+        if (!Boolean.parseBoolean(entities.getOrDefault("allDay", "false"))
+                && entities.getOrDefault("startTime", "").isBlank()
+                && ambiguityMarkers.isEmpty()) {
+            missingFields.add("time");
+        }
+
+        boolean safeToExecute = missingFields.isEmpty() && ambiguityMarkers.isEmpty();
+        double confidence = safeToExecute ? 0.78d : 0.58d;
+        return new IntentInterpretation(
+                new AssistantIntent(IntentType.CREATE_CALENDAR_EVENT, Map.copyOf(entities)),
+                new ConfidenceScore(confidence),
+                List.copyOf(ambiguityMarkers),
+                List.copyOf(missingFields),
+                safeToExecute
+        );
+    }
+
     private boolean looksLikeCalendarIntent(String normalizedText, IntentInterpretationRequest request) {
         if (request.conversationState().isAwaitingClarification()) {
             return true;
@@ -344,6 +414,61 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
                 "добавь",
                 "создай"
         );
+    }
+
+    private boolean looksLikeImplicitTaskShorthand(String originalText) {
+        String normalizedText = originalText.trim().toLowerCase(Locale.ROOT);
+        if (normalizedText.isBlank() || normalizedText.endsWith("?")) {
+            return false;
+        }
+        if (normalizedText.contains("http://") || normalizedText.contains("https://") || normalizedText.contains("www.")) {
+            return false;
+        }
+        if (containsAny(
+                normalizedText,
+                "привет", "здравств", "доброе утро", "добрый день", "добрый вечер",
+                "спасибо", "пока", "как дела", "hello", "hi", "thanks", "bye"
+        )) {
+            return false;
+        }
+
+        String[] words = normalizedText.split("\\s+");
+        if (words.length == 0 || words.length > 6) {
+            return false;
+        }
+
+        String firstWord = words[0];
+        return firstWord.matches("(?iu).*(ть|ти|ться|ись|й|и)$") || words.length <= 3;
+    }
+
+    private String extractImplicitTaskTitle(String originalText) {
+        String cleaned = originalText
+                .replaceAll("(?iu)(?:в|at)\\s*\\d{1,2}(?::\\d{2})?(?:\\s*(утра|дня|вечера|ночи|am|pm))?", " ")
+                .replaceAll("\\d{1,2}\\.\\d{1,2}(?:\\.\\d{4})?", " ")
+                .replaceAll("\\d{4}-\\d{2}-\\d{2}", " ")
+                .replaceAll("(?iu)\\b(сегодня|завтра|today|tomorrow|весь день|all day|утром|днем|днём|вечером|morning|afternoon|evening)\\b", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        while (cleaned.matches("(?iu).*(?:\\s+(?:на|в|at|to|for))$")) {
+            cleaned = cleaned.replaceAll("(?iu)\\s+(?:на|в|at|to|for)$", "").trim();
+        }
+        return cleaned;
+    }
+
+    private String normalizeImplicitTaskTitle(String originalText) {
+        String cleaned = extractImplicitTaskTitle(originalText);
+        for (String suffix : List.of(
+                " сегодня", " завтра",
+                " today", " tomorrow",
+                " весь день", " на весь день", " all day",
+                " утром", " днем", " днём", " вечером",
+                " morning", " afternoon", " evening"
+        )) {
+            if (cleaned.regionMatches(true, Math.max(cleaned.length() - suffix.length(), 0), suffix, 0, suffix.length())) {
+                cleaned = cleaned.substring(0, cleaned.length() - suffix.length()).trim();
+            }
+        }
+        return cleaned.replaceAll("\\s+", " ").trim();
     }
 
     private String extractTitle(String originalText) {
