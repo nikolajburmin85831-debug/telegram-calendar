@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HttpGoogleCalendarClientTest {
@@ -125,6 +126,56 @@ class HttpGoogleCalendarClientTest {
             assertEquals(1, accessTokenProvider.invalidations());
             assertEquals("Bearer fresh-token", finalAuthorizationHeader.get());
             assertEquals("event-456", response.eventId());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void shouldExposeGoogleErrorMessageForBadRequest() throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+
+        try {
+            server.createContext("/calendars/primary/events", exchange -> {
+                byte[] responseBody = """
+                        {"error":{"message":"Invalid value for: Invalid format: dateTime"}}
+                        """.trim().getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(400, responseBody.length);
+                try (var outputStream = exchange.getResponseBody()) {
+                    outputStream.write(responseBody);
+                }
+            });
+            server.start();
+
+            HttpGoogleCalendarClient client = new HttpGoogleCalendarClient(
+                    new GoogleCalendarProperties(
+                            true,
+                            "primary",
+                            false,
+                            "http://127.0.0.1:" + server.getAddress().getPort()
+                    ),
+                    staticAccessToken("access-token")
+            );
+
+            IllegalStateException exception = assertThrows(
+                    IllegalStateException.class,
+                    () -> client.insert(new GoogleCalendarClient.InsertRequest(
+                            "primary",
+                            "Демо",
+                            "Created by test",
+                            "2026-04-17T10:00:00+03:00",
+                            "2026-04-17T11:00:00+03:00",
+                            false,
+                            "Europe/Moscow",
+                            "Zoom"
+                    ))
+            );
+
+            assertEquals(
+                    "Google Calendar insert failed with status 400: Invalid value for: Invalid format: dateTime",
+                    exception.getMessage()
+            );
         } finally {
             server.stop(0);
         }

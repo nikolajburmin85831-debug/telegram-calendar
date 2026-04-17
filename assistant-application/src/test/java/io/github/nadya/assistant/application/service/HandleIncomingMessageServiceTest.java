@@ -174,6 +174,69 @@ class HandleIncomingMessageServiceTest {
     }
 
     @Test
+    void shouldKeepOriginalTitleWhenTimeFollowUpContainsSpuriousTitle() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+        InMemoryConversationStatePort conversationStatePort = new InMemoryConversationStatePort();
+
+        HandleIncomingMessageService service = createService(
+                request -> switch (request.message().text()) {
+                    case "РєСѓРїРё РјРѕР»РѕРєРѕ" -> interpretation(
+                            Map.of(
+                                    "title", "РєСѓРїРё РјРѕР»РѕРєРѕ",
+                                    "allDay", "false"
+                            ),
+                            List.of(),
+                            List.of("date", "time"),
+                            false,
+                            0.72d
+                    );
+                    case "СЃРµРіРѕРґРЅСЏ" -> interpretation(
+                            Map.of(
+                                    "startDate", "2026-04-17",
+                                    "allDay", "false"
+                            ),
+                            List.of(),
+                            List.of("title", "time"),
+                            false,
+                            0.88d
+                    );
+                    case "19:00" -> interpretation(
+                            Map.of(
+                                    "title", "19:00",
+                                    "startTime", "19:00",
+                                    "allDay", "false"
+                            ),
+                            List.of(),
+                            List.of("date"),
+                            false,
+                            0.91d
+                    );
+                    default -> throw new IllegalStateException("Unexpected message: " + request.message().text());
+                },
+                new InMemoryUserContextPort(),
+                conversationStatePort,
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        ExecutionResult first = service.handle(sampleMessage("msg-3a", "РєСѓРїРё РјРѕР»РѕРєРѕ"));
+        ExecutionResult second = service.handle(sampleMessage("msg-3b", "СЃРµРіРѕРґРЅСЏ"));
+        ExecutionResult third = service.handle(sampleMessage("msg-3c", "19:00"));
+
+        ConversationState state = conversationStatePort.findByConversationId("telegram-chat:101").orElseThrow();
+        assertTrue(first.success());
+        assertTrue(second.success());
+        assertTrue(third.success());
+        assertEquals(1, calendarPort.createdDrafts.size());
+        assertEquals("РєСѓРїРё РјРѕР»РѕРєРѕ", calendarPort.createdDrafts.get(0).title());
+        assertTrue(third.userSummary().contains("РєСѓРїРё РјРѕР»РѕРєРѕ"));
+        assertEquals(ConversationStatus.COMPLETED, state.status());
+    }
+
+    @Test
     void shouldAskAgainWhenClarificationFollowUpIsStillAmbiguous() {
         RecordingCalendarPort calendarPort = new RecordingCalendarPort();
         RecordingNotificationPort notificationPort = new RecordingNotificationPort();

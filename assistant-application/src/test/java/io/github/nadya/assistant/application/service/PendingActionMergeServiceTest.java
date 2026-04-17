@@ -90,6 +90,42 @@ class PendingActionMergeServiceTest {
         assertFalse(merged.assistantIntent().entities().containsKey("startTime"));
     }
 
+    @Test
+    void shouldNotOverwriteKnownTitleWhenClarifyingTime() {
+        PendingAction pendingAction = pendingAction(
+                entities(
+                        "title", "РєСѓРїРё РјРѕР»РѕРєРѕ",
+                        "startDate", "2026-04-17",
+                        "allDay", "false"
+                ),
+                List.of("time"),
+                List.of()
+        );
+
+        IntentInterpretation merged = mergeService.merge(
+                pendingAction,
+                new ClarificationRequest("time", List.of("time"), "Р’Рѕ СЃРєРѕР»СЊРєРѕ РґРѕР»Р¶РЅРѕ РЅР°С‡Р°С‚СЊСЃСЏ СЃРѕР±С‹С‚РёРµ?", pendingAction.pendingActionId()),
+                interpretation(
+                        entities(
+                                "title", "19:00",
+                                "startTime", "19:00",
+                                "allDay", "false"
+                        ),
+                        List.of("date"),
+                        List.of(),
+                        false,
+                        0.88d
+                )
+        );
+
+        assertEquals("РєСѓРїРё РјРѕР»РѕРєРѕ", merged.assistantIntent().entities().get("title"));
+        assertEquals("2026-04-17", merged.assistantIntent().entities().get("startDate"));
+        assertEquals("19:00", merged.assistantIntent().entities().get("startTime"));
+        assertEquals("false", merged.assistantIntent().entities().get("allDay"));
+        assertTrue(merged.missingFields().isEmpty());
+        assertTrue(merged.safeToExecute());
+    }
+
     private PendingAction pendingAction(
             LinkedHashMap<String, String> entities,
             List<String> missingFields,

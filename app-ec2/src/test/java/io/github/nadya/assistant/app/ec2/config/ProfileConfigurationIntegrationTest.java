@@ -12,6 +12,7 @@ import io.github.nadya.assistant.adapter.out.persistence.memory.InMemoryConversa
 import io.github.nadya.assistant.adapter.out.persistence.memory.InMemoryUserContextAdapter;
 import io.github.nadya.assistant.app.ec2.AssistantEc2Application;
 import io.github.nadya.assistant.app.ec2.config.properties.AssistantGeminiProperties;
+import io.github.nadya.assistant.app.ec2.config.properties.AssistantGoogleCalendarProperties;
 import io.github.nadya.assistant.app.ec2.config.properties.AssistantPersistenceJdbcProperties;
 import io.github.nadya.assistant.app.ec2.config.properties.AssistantPersistenceProperties;
 import io.github.nadya.assistant.ports.out.AuditPort;
@@ -76,6 +77,25 @@ class ProfileConfigurationIntegrationTest {
             assertInstanceOf(TelegramBotApiPollingClient.class, context.getBean(TelegramPollingClient.class));
             assertInstanceOf(GoogleCalendarAdapter.class, context.getBean(CalendarPort.class));
             assertFalse(context.getBean(AssistantGeminiProperties.class).stubMode());
+        }
+    }
+
+    @Test
+    void shouldAutoEnableGoogleCalendarWhenRealModeIsRequested() {
+        try (ConfigurableApplicationContext context = new SpringApplicationBuilder(AssistantEc2Application.class)
+                .properties(Map.ofEntries(
+                        Map.entry("TELEGRAM_POLLING_ENABLED", false),
+                        Map.entry("TELEGRAM_NOTIFICATION_ENABLED", false),
+                        Map.entry("APP_GOOGLE_CALENDAR_MODE", "real"),
+                        Map.entry("GOOGLE_OAUTH_CLIENT_ID", "test-client-id"),
+                        Map.entry("GOOGLE_OAUTH_CLIENT_SECRET", "test-client-secret"),
+                        Map.entry("GOOGLE_OAUTH_REFRESH_TOKEN", "test-refresh-token")
+                ))
+                .run()) {
+            AssistantGoogleCalendarProperties properties = context.getBean(AssistantGoogleCalendarProperties.class);
+
+            assertFalse(properties.stubMode());
+            assertTrue(properties.runtimeEnabled());
         }
     }
 }

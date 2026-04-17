@@ -72,7 +72,9 @@ public final class PendingActionMergeService {
         }
 
         if (!unresolvedMarkers.isEmpty()) {
-            allowedKeys.add("title");
+            if (unresolvedMarkers.contains("title")) {
+                allowedKeys.add("title");
+            }
             allowedKeys.add("startDate");
             allowedKeys.add("startTime");
             allowedKeys.add("allDay");

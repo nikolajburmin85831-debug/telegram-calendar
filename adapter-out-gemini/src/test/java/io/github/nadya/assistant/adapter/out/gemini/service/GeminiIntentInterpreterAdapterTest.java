@@ -64,6 +64,43 @@ class GeminiIntentInterpreterAdapterTest {
     }
 
     @Test
+    void shouldInterpretAppointmentBookingRequestAsCalendarIntent() {
+        var interpretation = adapter.interpret(requestFor("Запиши меня к стоматологу на завтра в 14"));
+
+        assertEquals(IntentType.CREATE_CALENDAR_EVENT, interpretation.intentType());
+        assertEquals("2026-04-17", interpretation.assistantIntent().entities().get("startDate"));
+        assertEquals("14:00", interpretation.assistantIntent().entities().get("startTime"));
+        assertEquals("false", interpretation.assistantIntent().entities().get("allDay"));
+        assertEquals("к стоматологу", interpretation.assistantIntent().entities().get("title"));
+        assertTrue(interpretation.missingFields().isEmpty());
+        assertTrue(interpretation.ambiguityMarkers().isEmpty());
+        assertTrue(interpretation.safeToExecute());
+    }
+
+    @Test
+    void shouldTreatShortTaskPhraseAsReminderCandidate() {
+        var interpretation = adapter.interpret(requestFor("купи молоко"));
+
+        assertEquals(IntentType.CREATE_CALENDAR_EVENT, interpretation.intentType());
+        assertEquals("купи молоко", interpretation.assistantIntent().entities().get("title"));
+        assertEquals("false", interpretation.assistantIntent().entities().get("allDay"));
+        assertEquals(List.of("date", "time"), interpretation.missingFields());
+        assertTrue(interpretation.ambiguityMarkers().isEmpty());
+        assertFalse(interpretation.safeToExecute());
+    }
+
+    @Test
+    void shouldExtractDateFromShortTaskPhraseWhenPresent() {
+        var interpretation = adapter.interpret(requestFor("купи молоко завтра"));
+
+        assertEquals(IntentType.CREATE_CALENDAR_EVENT, interpretation.intentType());
+        assertEquals("купи молоко", interpretation.assistantIntent().entities().get("title"));
+        assertEquals("2026-04-17", interpretation.assistantIntent().entities().get("startDate"));
+        assertEquals(List.of("time"), interpretation.missingFields());
+        assertFalse(interpretation.safeToExecute());
+    }
+
+    @Test
     void shouldReturnClarificationShapeForAmbiguousTime() {
         var interpretation = adapter.interpret(requestFor("Создай встречу с командой завтра вечером"));
 
