@@ -48,6 +48,7 @@ Thumbs.db
 # Gradle / Java build outputs
 # =========================================================
 .gradle/
+.gradle-home
 build/
 /out/
 **/build/
