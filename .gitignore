@@ -49,9 +49,9 @@ Thumbs.db
 # =========================================================
 .gradle/
 build/
-out/
+/out/
 **/build/
-**/out/
+/*/out/
 
 # =========================================================
 # Test/runtime DB files if you use local file databases later
