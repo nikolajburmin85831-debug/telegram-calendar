@@ -1,5 +1,6 @@
 package io.github.nadya.assistant.adapter.out.gemini.service;
 
+import com.sun.net.httpserver.HttpServer;
 import io.github.nadya.assistant.adapter.out.gemini.config.GeminiProperties;
 import io.github.nadya.assistant.adapter.out.gemini.mapper.GeminiInterpretationMapper;
 import io.github.nadya.assistant.domain.common.ChannelType;
@@ -17,12 +18,17 @@ import io.github.nadya.assistant.domain.user.UserIdentity;
 import io.github.nadya.assistant.ports.out.IntentInterpretationRequest;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GeminiIntentInterpreterAdapterTest {
@@ -84,6 +90,108 @@ class GeminiIntentInterpreterAdapterTest {
         assertEquals("2026-04-17", interpretation.assistantIntent().entities().get("startDate"));
         assertEquals("10:00", interpretation.assistantIntent().entities().get("startTime"));
         assertEquals("false", interpretation.assistantIntent().entities().get("allDay"));
+    }
+
+    @Test
+    void shouldInterpretFollowUpHourWithMeridiemInClarificationContext() {
+        var interpretation = adapter.interpret(requestForFollowUp("в 10 утра"));
+
+        assertEquals(IntentType.CREATE_CALENDAR_EVENT, interpretation.intentType());
+        assertEquals("10:00", interpretation.assistantIntent().entities().get("startTime"));
+        assertEquals("false", interpretation.assistantIntent().entities().get("allDay"));
+    }
+
+    @Test
+    void shouldUseRealGeminiPathWhenStubModeDisabled() throws IOException {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        AtomicReference<String> requestQuery = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+
+        try {
+            server.createContext("/v1beta/models/gemini-test:generateContent", exchange -> {
+                requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                requestQuery.set(exchange.getRequestURI().getQuery());
+
+                String canonicalJson = """
+                        {"intentType":"CREATE_CALENDAR_EVENT","entities":{"title":"демо","startDate":"2026-04-17","startTime":"10:00","allDay":"false"},"confidence":0.96,"ambiguityMarkers":[],"missingFields":[],"safeToExecute":true}
+                        """.trim();
+                byte[] responseBody = (
+                        "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\""
+                                + escapeJson(canonicalJson)
+                                + "\"}]}}]}"
+                ).getBytes(StandardCharsets.UTF_8);
+
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, responseBody.length);
+                try (var outputStream = exchange.getResponseBody()) {
+                    outputStream.write(responseBody);
+                }
+            });
+            server.start();
+
+            GeminiIntentInterpreterAdapter realAdapter = new GeminiIntentInterpreterAdapter(
+                    new GeminiProperties(
+                            "gemini-test",
+                            "test-key",
+                            false,
+                            "http://127.0.0.1:" + server.getAddress().getPort(),
+                            false
+                    ),
+                    new GeminiInterpretationMapper()
+            );
+
+            IntentInterpretation interpretation = realAdapter.interpret(requestFor("Создай демо завтра в 10:00"));
+
+            assertEquals("key=test-key", requestQuery.get());
+            assertNotNull(requestBody.get());
+            assertTrue(requestBody.get().contains("Создай демо завтра в 10:00"));
+            assertEquals(IntentType.CREATE_CALENDAR_EVENT, interpretation.intentType());
+            assertEquals("демо", interpretation.assistantIntent().entities().get("title"));
+            assertEquals("10:00", interpretation.assistantIntent().entities().get("startTime"));
+            assertTrue(interpretation.safeToExecute());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void shouldFallbackToStubWhenRealGeminiPathFailsAndFallbackEnabled() throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+
+        try {
+            server.createContext("/v1beta/models/gemini-test:generateContent", exchange -> {
+                exchange.sendResponseHeaders(500, -1);
+                exchange.close();
+            });
+            server.start();
+
+            GeminiIntentInterpreterAdapter fallbackAdapter = new GeminiIntentInterpreterAdapter(
+                    new GeminiProperties(
+                            "gemini-test",
+                            "test-key",
+                            false,
+                            "http://127.0.0.1:" + server.getAddress().getPort(),
+                            true
+                    ),
+                    new GeminiInterpretationMapper()
+            );
+
+            IntentInterpretation interpretation = fallbackAdapter.interpret(
+                    requestFor("Напомни завтра в 10:00 позвонить маме")
+            );
+
+            assertEquals(IntentType.CREATE_CALENDAR_EVENT, interpretation.intentType());
+            assertEquals("10:00", interpretation.assistantIntent().entities().get("startTime"));
+            assertTrue(interpretation.safeToExecute());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static String escapeJson(String value) {
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"");
     }
 
     private IntentInterpretationRequest requestFor(String text) {

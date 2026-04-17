@@ -34,8 +34,12 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
 
     private static final Pattern ISO_DATE_PATTERN = Pattern.compile("\\b(\\d{4}-\\d{2}-\\d{2})\\b");
     private static final Pattern LOCAL_DATE_PATTERN = Pattern.compile("\\b(\\d{1,2})\\.(\\d{1,2})(?:\\.(\\d{4}))?\\b");
-    private static final Pattern TIME_PATTERN = Pattern.compile("(?iu)(?:\\b(?:в|at)\\s*)?(\\d{1,2})(?::(\\d{2}))\\b");
-    private static final Pattern HOUR_ONLY_PATTERN = Pattern.compile("(?iu)\\b(?:в|at)\\s*(\\d{1,2})\\b");
+    private static final Pattern TIME_PATTERN = Pattern.compile(
+            "(?iu)(?:^|\\s)(?:(?:в|at)\\s*)?(\\d{1,2}):(\\d{2})(?:\\s*(утра|дня|вечера|ночи|am|pm))?(?=$|\\s|[.!?,])"
+    );
+    private static final Pattern HOUR_ONLY_PATTERN = Pattern.compile(
+            "(?iu)(?:^|\\s)(?:в|at)\\s*(\\d{1,2})(?:\\s*(утра|дня|вечера|ночи|am|pm))?(?=$|\\s|[.!?,])"
+    );
     private static final Pattern LOCATION_PATTERN = Pattern.compile("(?iu)\\b(?:в|at)\\s+(офисе|zoom|online|онлайн)\\b");
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(30);
 
@@ -347,7 +351,7 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         }
 
         cleaned = cleaned
-                .replaceAll("(?iu)(?:в|at)\\s*\\d{1,2}(?::\\d{2})?", " ")
+                .replaceAll("(?iu)(?:в|at)\\s*\\d{1,2}(?::\\d{2})?(?:\\s*(утра|дня|вечера|ночи|am|pm))?", " ")
                 .replaceAll("\\d{1,2}\\.\\d{1,2}(?:\\.\\d{4})?", " ")
                 .replaceAll("\\d{4}-\\d{2}-\\d{2}", " ")
                 .replaceAll("(?iu)(?:в|at)\\s+(офисе|zoom|online|онлайн)", " ")
@@ -390,16 +394,39 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         if (exactTimeMatcher.find()) {
             int hour = Integer.parseInt(exactTimeMatcher.group(1));
             int minute = Integer.parseInt(exactTimeMatcher.group(2));
-            return LocalTime.of(hour, minute);
+            return toLocalTime(hour, minute, exactTimeMatcher.group(3));
         }
 
         Matcher hourOnlyMatcher = HOUR_ONLY_PATTERN.matcher(normalizedText);
         if (hourOnlyMatcher.find()) {
             int hour = Integer.parseInt(hourOnlyMatcher.group(1));
-            return LocalTime.of(hour, 0);
+            return toLocalTime(hour, 0, hourOnlyMatcher.group(2));
         }
 
         return null;
+    }
+
+    private LocalTime toLocalTime(int hour, int minute, String meridiem) {
+        int normalizedHour = normalizeHour(hour, meridiem);
+        if (normalizedHour < 0 || normalizedHour > 23 || minute < 0 || minute > 59) {
+            return null;
+        }
+        return LocalTime.of(normalizedHour, minute);
+    }
+
+    private int normalizeHour(int hour, String meridiem) {
+        String normalizedMeridiem = meridiem == null ? "" : meridiem.trim().toLowerCase(Locale.ROOT);
+        return switch (normalizedMeridiem) {
+            case "am", "утра" -> hour == 12 ? 0 : hour;
+            case "pm", "дня", "вечера" -> hour < 12 ? hour + 12 : hour;
+            case "ночи" -> {
+                if (hour == 12) {
+                    yield 0;
+                }
+                yield hour <= 5 ? hour : hour + 12;
+            }
+            default -> hour;
+        };
     }
 
     private String extractLocation(String originalText) {
