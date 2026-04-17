@@ -32,7 +32,7 @@ public final class TelegramBotApiPollingClient implements TelegramPollingClient 
         this(
                 properties,
                 HttpClient.newBuilder()
-                        .connectTimeout(properties.pollInterval().plus(EXTRA_HTTP_TIMEOUT))
+                        .connectTimeout(properties.httpRequestTimeout(EXTRA_HTTP_TIMEOUT))
                         .build(),
                 new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
         );
@@ -56,7 +56,7 @@ public final class TelegramBotApiPollingClient implements TelegramPollingClient 
 
         String requestBody = serializeRequest(new TelegramGetUpdatesRequest(offset, limit, properties.timeoutSeconds()));
         HttpRequest request = HttpRequest.newBuilder(buildUri("getUpdates"))
-                .timeout(properties.pollInterval().plus(EXTRA_HTTP_TIMEOUT))
+                .timeout(properties.httpRequestTimeout(EXTRA_HTTP_TIMEOUT))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
                 .build();
@@ -77,8 +77,10 @@ public final class TelegramBotApiPollingClient implements TelegramPollingClient 
                     .filter(Objects::nonNull)
                     .sorted(Comparator.comparingLong(TelegramUpdateDto::updateId))
                     .toList();
-        } catch (IOException exception) {
+        } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Telegram getUpdates response could not be parsed", exception);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Telegram getUpdates request failed", exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Telegram getUpdates request was interrupted", exception);

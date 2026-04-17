@@ -29,4 +29,11 @@ public record TelegramPollingProperties(
         stubChatId = stubChatId <= 0 ? 20001L : stubChatId;
         apiBaseUrl = apiBaseUrl == null || apiBaseUrl.isBlank() ? "https://api.telegram.org" : apiBaseUrl.trim();
     }
+
+    public Duration httpRequestTimeout(Duration extraTimeout) {
+        Duration extra = extraTimeout == null || extraTimeout.isNegative() ? Duration.ZERO : extraTimeout;
+        Duration longPollWindow = Duration.ofSeconds(Math.max(timeoutSeconds, 0));
+        Duration baseline = pollInterval.compareTo(longPollWindow) > 0 ? pollInterval : longPollWindow;
+        return baseline.plus(extra);
+    }
 }
