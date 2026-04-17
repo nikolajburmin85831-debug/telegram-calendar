@@ -62,6 +62,19 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         );
     }
 
+    public GeminiIntentInterpreterAdapter(
+            GeminiProperties properties,
+            GeminiInterpretationMapper interpretationMapper,
+            HttpClient httpClient
+    ) {
+        this(
+                properties,
+                interpretationMapper,
+                httpClient,
+                new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        );
+    }
+
     GeminiIntentInterpreterAdapter(
             GeminiProperties properties,
             GeminiInterpretationMapper interpretationMapper,

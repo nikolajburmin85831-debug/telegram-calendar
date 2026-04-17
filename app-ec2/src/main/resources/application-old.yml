@@ -6,7 +6,7 @@ spring:
 
 assistant:
   gemini:
-    model: gemini-2.5-flash
+    model: ${GEMINI_MODEL:}
     api-key: ""
     stub-mode: true
     base-url: https://generativelanguage.googleapis.com

@@ -31,8 +31,10 @@ import io.github.nadya.assistant.adapter.out.persistence.memory.InMemoryAuditAda
 import io.github.nadya.assistant.adapter.out.persistence.memory.InMemoryConversationStateAdapter;
 import io.github.nadya.assistant.adapter.out.persistence.memory.InMemoryIdempotencyAdapter;
 import io.github.nadya.assistant.adapter.out.persistence.memory.InMemoryUserContextAdapter;
+import io.github.nadya.assistant.app.ec2.config.http.OutboundHttpClientFactory;
 import io.github.nadya.assistant.app.ec2.config.properties.AssistantGeminiProperties;
 import io.github.nadya.assistant.app.ec2.config.properties.AssistantGoogleCalendarProperties;
+import io.github.nadya.assistant.app.ec2.config.properties.AssistantHttpClientProperties;
 import io.github.nadya.assistant.app.ec2.config.properties.AssistantGoogleOAuthProperties;
 import io.github.nadya.assistant.app.ec2.config.properties.AssistantPersistenceProperties;
 import io.github.nadya.assistant.app.ec2.config.properties.AssistantTelegramProperties;
@@ -48,10 +50,16 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
 
 @Configuration
 public class AdapterBeansConfig {
+
+    @Bean
+    HttpClient outboundHttpClient(AssistantHttpClientProperties properties) {
+        return new OutboundHttpClientFactory(properties).create();
+    }
 
     @Bean
     UserContextPort userContextPort(
@@ -116,9 +124,10 @@ public class AdapterBeansConfig {
     @Bean
     IntentInterpreterPort intentInterpreterPort(
             GeminiProperties geminiProperties,
-            GeminiInterpretationMapper geminiInterpretationMapper
+            GeminiInterpretationMapper geminiInterpretationMapper,
+            HttpClient outboundHttpClient
     ) {
-        return new GeminiIntentInterpreterAdapter(geminiProperties, geminiInterpretationMapper);
+        return new GeminiIntentInterpreterAdapter(geminiProperties, geminiInterpretationMapper, outboundHttpClient);
     }
 
     @Bean
@@ -152,12 +161,13 @@ public class AdapterBeansConfig {
     @Bean
     GoogleCalendarClient googleCalendarClient(
             GoogleCalendarProperties googleCalendarProperties,
-            GoogleCalendarOAuthSupport googleCalendarOAuthSupport
+            GoogleCalendarOAuthSupport googleCalendarOAuthSupport,
+            HttpClient outboundHttpClient
     ) {
         if (googleCalendarProperties.stubMode()) {
             return new StubGoogleCalendarClient();
         }
-        return new HttpGoogleCalendarClient(googleCalendarProperties, googleCalendarOAuthSupport);
+        return new HttpGoogleCalendarClient(googleCalendarProperties, googleCalendarOAuthSupport, outboundHttpClient);
     }
 
     @Bean
@@ -191,11 +201,14 @@ public class AdapterBeansConfig {
     }
 
     @Bean
-    TelegramNotificationClient telegramNotificationClient(TelegramNotificationProperties properties) {
+    TelegramNotificationClient telegramNotificationClient(
+            TelegramNotificationProperties properties,
+            HttpClient outboundHttpClient
+    ) {
         if (properties.stubMode()) {
             return new StubTelegramNotificationClient();
         }
-        return new TelegramBotApiNotificationClient(properties.apiBaseUrl());
+        return new TelegramBotApiNotificationClient(properties.apiBaseUrl(), outboundHttpClient);
     }
 
     @Bean
@@ -233,11 +246,14 @@ public class AdapterBeansConfig {
     }
 
     @Bean
-    TelegramPollingClient telegramPollingClient(TelegramPollingProperties telegramPollingProperties) {
+    TelegramPollingClient telegramPollingClient(
+            TelegramPollingProperties telegramPollingProperties,
+            HttpClient outboundHttpClient
+    ) {
         if (telegramPollingProperties.stubMode()) {
             return new StubTelegramPollingClient(telegramPollingProperties);
         }
-        return new TelegramBotApiPollingClient(telegramPollingProperties);
+        return new TelegramBotApiPollingClient(telegramPollingProperties, outboundHttpClient);
     }
 
     @Bean

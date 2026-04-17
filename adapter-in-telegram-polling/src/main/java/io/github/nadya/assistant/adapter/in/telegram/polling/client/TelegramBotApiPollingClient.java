@@ -38,6 +38,14 @@ public final class TelegramBotApiPollingClient implements TelegramPollingClient 
         );
     }
 
+    public TelegramBotApiPollingClient(TelegramPollingProperties properties, HttpClient httpClient) {
+        this(
+                properties,
+                httpClient,
+                new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        );
+    }
+
     TelegramBotApiPollingClient(
             TelegramPollingProperties properties,
             HttpClient httpClient,

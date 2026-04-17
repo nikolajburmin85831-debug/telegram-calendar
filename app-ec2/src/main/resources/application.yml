@@ -5,6 +5,14 @@ spring:
     web-application-type: none
 
 assistant:
+  http:
+    connect-timeout-seconds: ${HTTP_CLIENT_CONNECT_TIMEOUT_SECONDS:15}
+    proxy:
+      enabled: ${HTTP_PROXY_ENABLED:false}
+      url: ${HTTP_PROXY_URL:${HTTPS_PROXY:}}
+      username: ${HTTP_PROXY_USERNAME:}
+      password: ${HTTP_PROXY_PASSWORD:}
+
   app:
     default-timezone: ${APP_DEFAULT_TIMEZONE:Europe/Moscow}
     default-language: ${APP_DEFAULT_LANGUAGE:ru}
@@ -15,7 +23,7 @@ assistant:
 
   gemini:
     mode: ${APP_GEMINI_MODE:stub}
-    model: ${GEMINI_MODEL:gemini-2.5-flash}
+    model: ${GEMINI_MODEL:gemma-4-26b-a4b-it}
     api-key: ${GEMINI_API_KEY:}
     base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
     fallback-to-stub-on-error: ${GEMINI_FALLBACK_TO_STUB_ON_ERROR:true}

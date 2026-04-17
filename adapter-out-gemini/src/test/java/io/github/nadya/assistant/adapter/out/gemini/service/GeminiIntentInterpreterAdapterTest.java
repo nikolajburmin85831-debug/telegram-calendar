@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GeminiIntentInterpreterAdapterTest {
 
     private final GeminiIntentInterpreterAdapter adapter = new GeminiIntentInterpreterAdapter(
-            new GeminiProperties("gemini-2.5-flash", "", true, "https://generativelanguage.googleapis.com", true),
+            new GeminiProperties("test-model", "", true, "https://generativelanguage.googleapis.com", true),
             new GeminiInterpretationMapper()
     );
 

@@ -13,7 +13,7 @@ public record AssistantGeminiProperties(
 
     public AssistantGeminiProperties {
         mode = mode == null ? IntegrationMode.STUB : mode;
-        model = model == null || model.isBlank() ? "gemini-2.5-flash" : model.trim();
+        model = model == null ? "" : model.trim();
         apiKey = apiKey == null ? "" : apiKey.trim();
         baseUrl = baseUrl == null || baseUrl.isBlank()
                 ? "https://generativelanguage.googleapis.com"

@@ -31,6 +31,14 @@ public final class TelegramBotApiNotificationClient implements TelegramNotificat
         );
     }
 
+    public TelegramBotApiNotificationClient(String apiBaseUrl, HttpClient httpClient) {
+        this(
+                apiBaseUrl,
+                httpClient,
+                new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        );
+    }
+
     TelegramBotApiNotificationClient(
             String apiBaseUrl,
             HttpClient httpClient,

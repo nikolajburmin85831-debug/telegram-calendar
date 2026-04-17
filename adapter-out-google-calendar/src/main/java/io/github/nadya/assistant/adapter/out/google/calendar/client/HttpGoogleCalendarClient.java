@@ -39,6 +39,19 @@ public final class HttpGoogleCalendarClient implements GoogleCalendarClient {
         );
     }
 
+    public HttpGoogleCalendarClient(
+            GoogleCalendarProperties properties,
+            GoogleAccessTokenProvider accessTokenProvider,
+            HttpClient httpClient
+    ) {
+        this(
+                properties,
+                accessTokenProvider,
+                httpClient,
+                new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        );
+    }
+
     HttpGoogleCalendarClient(
             GoogleCalendarProperties properties,
             GoogleAccessTokenProvider accessTokenProvider,

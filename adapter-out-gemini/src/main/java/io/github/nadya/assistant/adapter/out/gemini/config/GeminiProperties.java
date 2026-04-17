@@ -9,7 +9,7 @@ public record GeminiProperties(
 ) {
 
     public GeminiProperties {
-        model = model == null || model.isBlank() ? "gemini-2.5-flash" : model;
+        model = model == null ? "" : model.trim();
         apiKey = apiKey == null ? "" : apiKey;
         baseUrl = baseUrl == null || baseUrl.isBlank()
                 ? "https://generativelanguage.googleapis.com"
