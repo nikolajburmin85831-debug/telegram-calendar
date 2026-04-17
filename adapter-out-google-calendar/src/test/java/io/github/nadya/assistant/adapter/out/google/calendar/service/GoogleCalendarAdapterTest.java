@@ -4,11 +4,13 @@ import io.github.nadya.assistant.adapter.out.google.calendar.client.GoogleCalend
 import io.github.nadya.assistant.adapter.out.google.calendar.config.GoogleCalendarProperties;
 import io.github.nadya.assistant.adapter.out.google.calendar.mapper.GoogleCalendarRequestMapper;
 import io.github.nadya.assistant.adapter.out.google.calendar.oauth.GoogleCalendarOAuthSupport;
+import io.github.nadya.assistant.adapter.out.google.calendar.oauth.GoogleOAuthProperties;
 import io.github.nadya.assistant.domain.calendar.CalendarEventDraft;
 import io.github.nadya.assistant.domain.common.Timezone;
 import org.junit.jupiter.api.Test;
 
 import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -19,12 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GoogleCalendarAdapterTest {
 
     @Test
-    void shouldFailCleanlyWhenRealGoogleCalendarModeHasNoAccessToken() {
+    void shouldFailCleanlyWhenRealGoogleCalendarModeHasNoOAuthCredentials() {
         GoogleCalendarAdapter adapter = new GoogleCalendarAdapter(
                 request -> new GoogleCalendarClient.InsertResponse("unexpected", "unexpected"),
                 new GoogleCalendarRequestMapper(),
-                new GoogleCalendarOAuthSupport(),
-                new GoogleCalendarProperties(true, "primary", false, "", "https://www.googleapis.com/calendar/v3")
+                new GoogleCalendarOAuthSupport(emptyOAuthProperties()),
+                new GoogleCalendarProperties(true, "primary", false, "https://www.googleapis.com/calendar/v3")
         );
 
         IllegalStateException exception = assertThrows(
@@ -44,8 +46,8 @@ class GoogleCalendarAdapterTest {
                     return new GoogleCalendarClient.InsertResponse("stub-event", "stub://event");
                 },
                 new GoogleCalendarRequestMapper(),
-                new GoogleCalendarOAuthSupport(),
-                new GoogleCalendarProperties(false, "primary", true, "", "https://www.googleapis.com/calendar/v3")
+                new GoogleCalendarOAuthSupport(emptyOAuthProperties()),
+                new GoogleCalendarProperties(false, "primary", true, "https://www.googleapis.com/calendar/v3")
         );
 
         var reference = adapter.createEvent(sampleDraft());
@@ -53,6 +55,18 @@ class GoogleCalendarAdapterTest {
         assertTrue(clientCalled.get());
         assertEquals("stub-event", reference.externalId());
         assertEquals("stub://event", reference.humanReadableReference());
+    }
+
+    private GoogleOAuthProperties emptyOAuthProperties() {
+        return new GoogleOAuthProperties(
+                "",
+                "",
+                "",
+                "",
+                "https://oauth2.googleapis.com/token",
+                List.of(),
+                "test"
+        );
     }
 
     private CalendarEventDraft sampleDraft() {

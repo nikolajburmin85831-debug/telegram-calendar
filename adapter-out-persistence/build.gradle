@@ -2,4 +2,8 @@ description = 'Persistence adapters for conversation state, user context, idempo
 
 dependencies {
     implementation project(':assistant-ports')
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+
+    testImplementation 'com.h2database:h2'
 }

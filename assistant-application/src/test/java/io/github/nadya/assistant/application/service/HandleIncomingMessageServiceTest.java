@@ -504,7 +504,13 @@ class HandleIncomingMessageServiceTest {
                 new PendingActionFactory(),
                 new PendingActionMergeService(),
                 new ConversationControlService(),
-                new PendingFlowInterruptionService()
+                new PendingFlowInterruptionService(),
+                new DefaultUserContextFactory(
+                        new Timezone("Europe/Moscow"),
+                        "ru",
+                        ConfirmationPreference.AUTO_EXECUTE,
+                        Duration.ofHours(1)
+                )
         );
     }
 

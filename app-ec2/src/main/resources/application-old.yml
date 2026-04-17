@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: telegram-calendar
+  main:
+    web-application-type: none
+
+assistant:
+  gemini:
+    model: gemini-2.5-flash
+    api-key: ""
+    stub-mode: true
+    base-url: https://generativelanguage.googleapis.com
+    fallback-to-stub-on-error: true
+  google-calendar:
+    enabled: false
+    calendar-id: primary
+    stub-mode: true
+    access-token: ""
+    base-url: https://www.googleapis.com/calendar/v3
+  telegram:
+    polling:
+      enabled: false
+      bot-token: ""
+      poll-interval: 5s
+      limit: 100
+      stub-mode: true
+      sample-messages: []
+      stub-user-id: 10001
+      stub-chat-id: 20001
+      api-base-url: https://api.telegram.org
+    notification:
+      enabled: false
+      bot-token: ""
+      stub-mode: true
+      api-base-url: https://api.telegram.org

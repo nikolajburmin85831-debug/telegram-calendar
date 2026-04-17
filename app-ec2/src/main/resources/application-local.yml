@@ -1,0 +1,32 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+
+assistant:
+  gemini:
+    mode: stub
+    fallback-to-stub-on-error: true
+
+  google-calendar:
+    mode: stub
+    enabled: false
+
+  telegram:
+    mode: stub
+    polling:
+      enabled: true
+      sample-messages:
+        - "Напомни завтра в 10:00 позвонить маме"
+        - "Напомни завтра позвонить маме"
+    notification:
+      enabled: true
+
+  persistence:
+    mode: inmemory
+    audit-mode: inmemory
+
+logging:
+  level:
+    root: INFO
+    io.github.nadya.assistant: DEBUG

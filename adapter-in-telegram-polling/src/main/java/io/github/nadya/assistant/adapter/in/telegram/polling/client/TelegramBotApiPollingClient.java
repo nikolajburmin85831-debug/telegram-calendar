@@ -54,7 +54,7 @@ public final class TelegramBotApiPollingClient implements TelegramPollingClient 
             return List.of();
         }
 
-        String requestBody = serializeRequest(new TelegramGetUpdatesRequest(offset, limit, 0));
+        String requestBody = serializeRequest(new TelegramGetUpdatesRequest(offset, limit, properties.timeoutSeconds()));
         HttpRequest request = HttpRequest.newBuilder(buildUri("getUpdates"))
                 .timeout(properties.pollInterval().plus(EXTRA_HTTP_TIMEOUT))
                 .header("Content-Type", "application/json")

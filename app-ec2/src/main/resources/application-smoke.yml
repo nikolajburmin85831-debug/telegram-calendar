@@ -1,0 +1,29 @@
+spring:
+  config:
+    activate:
+      on-profile: smoke
+
+assistant:
+  gemini:
+    mode: real
+    fallback-to-stub-on-error: true
+
+  google-calendar:
+    mode: real
+    enabled: true
+
+  telegram:
+    mode: real
+    polling:
+      enabled: true
+    notification:
+      enabled: true
+
+  persistence:
+    mode: jdbc
+    audit-mode: jdbc
+
+logging:
+  level:
+    root: INFO
+    io.github.nadya.assistant: DEBUG

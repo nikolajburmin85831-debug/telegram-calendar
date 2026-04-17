@@ -33,7 +33,7 @@ public final class GoogleCalendarAdapter implements CalendarPort {
             throw new IllegalStateException("Google Calendar adapter is disabled and stub mode is off");
         }
 
-        if (!properties.stubMode() && !oAuthSupport.isReady(properties)) {
+        if (!properties.stubMode() && !oAuthSupport.isReady()) {
             throw new IllegalStateException("Google Calendar adapter is enabled but OAuth is not configured");
         }
 

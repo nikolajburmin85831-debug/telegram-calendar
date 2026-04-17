@@ -6,10 +6,13 @@ import io.github.nadya.assistant.application.handler.PendingConfirmationHandler;
 import io.github.nadya.assistant.application.orchestration.IntentRoutingService;
 import io.github.nadya.assistant.application.service.ConfirmationPolicyService;
 import io.github.nadya.assistant.application.service.ConversationControlService;
+import io.github.nadya.assistant.application.service.DefaultUserContextFactory;
 import io.github.nadya.assistant.application.service.HandleIncomingMessageService;
 import io.github.nadya.assistant.application.service.PendingActionFactory;
 import io.github.nadya.assistant.application.service.PendingActionMergeService;
 import io.github.nadya.assistant.application.service.PendingFlowInterruptionService;
+import io.github.nadya.assistant.app.ec2.config.properties.AssistantAppProperties;
+import io.github.nadya.assistant.domain.common.Timezone;
 import io.github.nadya.assistant.ports.in.HandleIncomingMessageUseCase;
 import io.github.nadya.assistant.ports.out.AuditPort;
 import io.github.nadya.assistant.ports.out.CalendarPort;
@@ -70,6 +73,16 @@ public class CoreBeansConfig {
     }
 
     @Bean
+    DefaultUserContextFactory defaultUserContextFactory(AssistantAppProperties appProperties) {
+        return new DefaultUserContextFactory(
+                new Timezone(appProperties.defaultTimezone()),
+                appProperties.defaultLanguage(),
+                appProperties.defaultConfirmationPreference(),
+                appProperties.defaultEventDuration()
+        );
+    }
+
+    @Bean
     HandleIncomingMessageUseCase handleIncomingMessageUseCase(
             UserContextPort userContextPort,
             ConversationStatePort conversationStatePort,
@@ -84,7 +97,8 @@ public class CoreBeansConfig {
             PendingActionFactory pendingActionFactory,
             PendingActionMergeService pendingActionMergeService,
             ConversationControlService conversationControlService,
-            PendingFlowInterruptionService pendingFlowInterruptionService
+            PendingFlowInterruptionService pendingFlowInterruptionService,
+            DefaultUserContextFactory defaultUserContextFactory
     ) {
         return new HandleIncomingMessageService(
                 userContextPort,
@@ -100,7 +114,8 @@ public class CoreBeansConfig {
                 pendingActionFactory,
                 pendingActionMergeService,
                 conversationControlService,
-                pendingFlowInterruptionService
+                pendingFlowInterruptionService,
+                defaultUserContextFactory
         );
     }
 }

@@ -5,31 +5,66 @@ spring:
     web-application-type: none
 
 assistant:
+  app:
+    default-timezone: ${APP_DEFAULT_TIMEZONE:Europe/Moscow}
+    default-language: ${APP_DEFAULT_LANGUAGE:ru}
+    require-confirmation: ${APP_REQUIRE_CONFIRMATION:false}
+    default-reminder-duration-minutes: ${APP_DEFAULT_REMINDER_DURATION_MINUTES:15}
+    default-meeting-duration-minutes: ${APP_DEFAULT_MEETING_DURATION_MINUTES:30}
+    idempotency-ttl-hours: ${APP_IDEMPOTENCY_TTL_HOURS:24}
+
   gemini:
-    model: gemini-2.5-flash
-    api-key: ""
-    stub-mode: true
-    base-url: https://generativelanguage.googleapis.com
-    fallback-to-stub-on-error: true
+    mode: ${APP_GEMINI_MODE:stub}
+    model: ${GEMINI_MODEL:gemini-2.5-flash}
+    api-key: ${GEMINI_API_KEY:}
+    base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
+    fallback-to-stub-on-error: ${GEMINI_FALLBACK_TO_STUB_ON_ERROR:true}
+
   google-calendar:
-    enabled: false
-    calendar-id: primary
-    stub-mode: true
-    access-token: ""
-    base-url: https://www.googleapis.com/calendar/v3
+    mode: ${APP_GOOGLE_CALENDAR_MODE:stub}
+    enabled: ${GOOGLE_CALENDAR_REAL_ENABLED:false}
+    calendar-id: ${GOOGLE_CALENDAR_ID:primary}
+    base-url: ${GOOGLE_CALENDAR_BASE_URL:https://www.googleapis.com/calendar/v3}
+    default-timezone: ${GOOGLE_CALENDAR_DEFAULT_TIMEZONE:Europe/Moscow}
+
+  google-oauth:
+    client-id: ${GOOGLE_OAUTH_CLIENT_ID:}
+    client-secret: ${GOOGLE_OAUTH_CLIENT_SECRET:}
+    refresh-token: ${GOOGLE_OAUTH_REFRESH_TOKEN:}
+    access-token: ${GOOGLE_OAUTH_ACCESS_TOKEN:}
+    token-url: ${GOOGLE_OAUTH_TOKEN_URL:https://oauth2.googleapis.com/token}
+    scopes: ${GOOGLE_OAUTH_SCOPES:https://www.googleapis.com/auth/calendar}
+    credential-source: ${GOOGLE_OAUTH_CREDENTIAL_SOURCE:env}
+
   telegram:
+    mode: ${APP_TELEGRAM_MODE:stub}
+    bot-token: ${TELEGRAM_BOT_TOKEN:}
+    api-base-url: ${TELEGRAM_BASE_URL:https://api.telegram.org}
     polling:
-      enabled: false
-      bot-token: ""
-      poll-interval: 5s
-      limit: 100
-      stub-mode: true
+      enabled: ${TELEGRAM_POLLING_ENABLED:false}
+      fixed-delay-ms: ${TELEGRAM_POLLING_FIXED_DELAY_MS:1500}
+      timeout-seconds: ${TELEGRAM_POLLING_TIMEOUT_SECONDS:20}
+      limit: ${TELEGRAM_POLLING_LIMIT:100}
       sample-messages: []
-      stub-user-id: 10001
-      stub-chat-id: 20001
-      api-base-url: https://api.telegram.org
+      stub-user-id: ${TELEGRAM_STUB_USER_ID:10001}
+      stub-chat-id: ${TELEGRAM_STUB_CHAT_ID:20001}
     notification:
-      enabled: false
-      bot-token: ""
-      stub-mode: true
-      api-base-url: https://api.telegram.org
+      enabled: ${TELEGRAM_NOTIFICATION_ENABLED:true}
+
+  persistence:
+    mode: ${APP_PERSISTENCE_MODE:inmemory}
+    audit-mode: ${APP_AUDIT_MODE:inmemory}
+    jdbc:
+      url: ${DB_URL:}
+      username: ${DB_USERNAME:}
+      password: ${DB_PASSWORD:}
+      driver-class-name: ${DB_DRIVER:org.postgresql.Driver}
+      schema: ${DB_SCHEMA:public}
+      pool-max-size: ${DB_POOL_MAX_SIZE:10}
+      pool-min-idle: ${DB_POOL_MIN_IDLE:2}
+      connection-timeout-ms: ${DB_POOL_CONNECTION_TIMEOUT_MS:30000}
+
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    io.github.nadya.assistant: ${LOG_LEVEL_APP:DEBUG}

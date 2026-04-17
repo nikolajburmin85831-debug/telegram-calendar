@@ -43,6 +43,7 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
     private final PendingActionMergeService pendingActionMergeService;
     private final ConversationControlService conversationControlService;
     private final PendingFlowInterruptionService pendingFlowInterruptionService;
+    private final DefaultUserContextFactory defaultUserContextFactory;
 
     public HandleIncomingMessageService(
             UserContextPort userContextPort,
@@ -58,7 +59,8 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
             PendingActionFactory pendingActionFactory,
             PendingActionMergeService pendingActionMergeService,
             ConversationControlService conversationControlService,
-            PendingFlowInterruptionService pendingFlowInterruptionService
+            PendingFlowInterruptionService pendingFlowInterruptionService,
+            DefaultUserContextFactory defaultUserContextFactory
     ) {
         this.userContextPort = userContextPort;
         this.conversationStatePort = conversationStatePort;
@@ -74,6 +76,7 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         this.pendingActionMergeService = pendingActionMergeService;
         this.conversationControlService = conversationControlService;
         this.pendingFlowInterruptionService = pendingFlowInterruptionService;
+        this.defaultUserContextFactory = defaultUserContextFactory;
     }
 
     @Override
@@ -142,7 +145,7 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
 
     private UserContext loadUserContext(IncomingUserMessage message) {
         UserContext userContext = userContextPort.findByUserId(message.userId())
-                .orElseGet(() -> UserContext.defaultFor(message.userId(), message.conversationId()))
+                .orElseGet(() -> defaultUserContextFactory.create(message.userId(), message.conversationId()))
                 .withActiveConversationId(message.conversationId());
         return userContextPort.save(userContext);
     }

@@ -8,6 +8,7 @@ public record TelegramPollingProperties(
         boolean enabled,
         String botToken,
         Duration pollInterval,
+        int timeoutSeconds,
         int limit,
         boolean stubMode,
         List<String> sampleMessages,
@@ -21,6 +22,7 @@ public record TelegramPollingProperties(
         pollInterval = pollInterval == null || pollInterval.isNegative() || pollInterval.isZero()
                 ? Duration.ofSeconds(5)
                 : pollInterval;
+        timeoutSeconds = timeoutSeconds < 0 ? 20 : timeoutSeconds;
         limit = limit <= 0 ? 100 : limit;
         sampleMessages = List.copyOf(sampleMessages == null ? List.of() : sampleMessages);
         stubUserId = stubUserId <= 0 ? 10001L : stubUserId;

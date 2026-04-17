@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.nadya.assistant.adapter.out.google.calendar.config.GoogleCalendarProperties;
+import io.github.nadya.assistant.adapter.out.google.calendar.oauth.GoogleAccessTokenProvider;
 
 import java.io.IOException;
 import java.net.URI;
@@ -20,12 +21,17 @@ public final class HttpGoogleCalendarClient implements GoogleCalendarClient {
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(20);
 
     private final GoogleCalendarProperties properties;
+    private final GoogleAccessTokenProvider accessTokenProvider;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
-    public HttpGoogleCalendarClient(GoogleCalendarProperties properties) {
+    public HttpGoogleCalendarClient(
+            GoogleCalendarProperties properties,
+            GoogleAccessTokenProvider accessTokenProvider
+    ) {
         this(
                 properties,
+                accessTokenProvider,
                 HttpClient.newBuilder()
                         .connectTimeout(HTTP_TIMEOUT)
                         .build(),
@@ -35,25 +41,24 @@ public final class HttpGoogleCalendarClient implements GoogleCalendarClient {
 
     HttpGoogleCalendarClient(
             GoogleCalendarProperties properties,
+            GoogleAccessTokenProvider accessTokenProvider,
             HttpClient httpClient,
             ObjectMapper objectMapper
     ) {
         this.properties = properties;
+        this.accessTokenProvider = accessTokenProvider;
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
     }
 
     @Override
     public InsertResponse insert(InsertRequest request) {
-        HttpRequest httpRequest = HttpRequest.newBuilder(buildUri(request.calendarId()))
-                .timeout(HTTP_TIMEOUT)
-                .header("Authorization", "Bearer " + properties.accessToken())
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(serializeRequest(request), StandardCharsets.UTF_8))
-                .build();
-
         try {
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = sendInsert(request, accessTokenProvider.getAccessToken());
+            if (response.statusCode() == 401) {
+                accessTokenProvider.invalidate();
+                response = sendInsert(request, accessTokenProvider.getAccessToken());
+            }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("Google Calendar insert failed with status " + response.statusCode());
             }
@@ -73,6 +78,16 @@ public final class HttpGoogleCalendarClient implements GoogleCalendarClient {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Google Calendar insert request was interrupted", exception);
         }
+    }
+
+    private HttpResponse<String> sendInsert(InsertRequest request, String accessToken) throws IOException, InterruptedException {
+        HttpRequest httpRequest = HttpRequest.newBuilder(buildUri(request.calendarId()))
+                .timeout(HTTP_TIMEOUT)
+                .header("Authorization", "Bearer " + accessToken)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(serializeRequest(request), StandardCharsets.UTF_8))
+                .build();
+        return httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     }
 
     private URI buildUri(String calendarId) {

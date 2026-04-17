@@ -46,6 +46,7 @@ class TelegramBotApiPollingClientTest {
                     true,
                     "test-token",
                     Duration.ofSeconds(1),
+                    20,
                     100,
                     false,
                     List.of(),
@@ -58,7 +59,7 @@ class TelegramBotApiPollingClientTest {
 
             assertTrue(requestBody.get().contains("\"offset\":17"));
             assertTrue(requestBody.get().contains("\"limit\":2"));
-            assertTrue(requestBody.get().contains("\"timeout\":0"));
+            assertTrue(requestBody.get().contains("\"timeout\":20"));
             assertEquals(2, updates.size());
             assertEquals(17L, updates.get(0).updateId());
             assertEquals("первое", updates.get(0).message().text());

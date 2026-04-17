@@ -1,8 +1,8 @@
 package io.github.nadya.assistant.app.ec2.config;
 
+import io.github.nadya.assistant.adapter.in.telegram.polling.client.StubTelegramPollingClient;
 import io.github.nadya.assistant.adapter.in.telegram.polling.client.TelegramBotApiPollingClient;
 import io.github.nadya.assistant.adapter.in.telegram.polling.client.TelegramPollingClient;
-import io.github.nadya.assistant.adapter.in.telegram.polling.client.StubTelegramPollingClient;
 import io.github.nadya.assistant.adapter.in.telegram.polling.config.TelegramPollingProperties;
 import io.github.nadya.assistant.adapter.in.telegram.polling.mapper.TelegramUpdateMapper;
 import io.github.nadya.assistant.adapter.in.telegram.polling.service.TelegramPollingLoop;
@@ -15,6 +15,7 @@ import io.github.nadya.assistant.adapter.out.google.calendar.client.StubGoogleCa
 import io.github.nadya.assistant.adapter.out.google.calendar.config.GoogleCalendarProperties;
 import io.github.nadya.assistant.adapter.out.google.calendar.mapper.GoogleCalendarRequestMapper;
 import io.github.nadya.assistant.adapter.out.google.calendar.oauth.GoogleCalendarOAuthSupport;
+import io.github.nadya.assistant.adapter.out.google.calendar.oauth.GoogleOAuthProperties;
 import io.github.nadya.assistant.adapter.out.google.calendar.service.GoogleCalendarAdapter;
 import io.github.nadya.assistant.adapter.out.notification.telegram.client.StubTelegramNotificationClient;
 import io.github.nadya.assistant.adapter.out.notification.telegram.client.TelegramBotApiNotificationClient;
@@ -22,10 +23,19 @@ import io.github.nadya.assistant.adapter.out.notification.telegram.client.Telegr
 import io.github.nadya.assistant.adapter.out.notification.telegram.config.TelegramNotificationProperties;
 import io.github.nadya.assistant.adapter.out.notification.telegram.mapper.TelegramNotificationMapper;
 import io.github.nadya.assistant.adapter.out.notification.telegram.service.TelegramNotificationAdapter;
+import io.github.nadya.assistant.adapter.out.persistence.jdbc.JdbcAuditAdapter;
+import io.github.nadya.assistant.adapter.out.persistence.jdbc.JdbcConversationStateAdapter;
+import io.github.nadya.assistant.adapter.out.persistence.jdbc.JdbcIdempotencyAdapter;
+import io.github.nadya.assistant.adapter.out.persistence.jdbc.JdbcUserContextAdapter;
 import io.github.nadya.assistant.adapter.out.persistence.memory.InMemoryAuditAdapter;
 import io.github.nadya.assistant.adapter.out.persistence.memory.InMemoryConversationStateAdapter;
 import io.github.nadya.assistant.adapter.out.persistence.memory.InMemoryIdempotencyAdapter;
 import io.github.nadya.assistant.adapter.out.persistence.memory.InMemoryUserContextAdapter;
+import io.github.nadya.assistant.app.ec2.config.properties.AssistantGeminiProperties;
+import io.github.nadya.assistant.app.ec2.config.properties.AssistantGoogleCalendarProperties;
+import io.github.nadya.assistant.app.ec2.config.properties.AssistantGoogleOAuthProperties;
+import io.github.nadya.assistant.app.ec2.config.properties.AssistantPersistenceProperties;
+import io.github.nadya.assistant.app.ec2.config.properties.AssistantTelegramProperties;
 import io.github.nadya.assistant.ports.in.HandleIncomingMessageUseCase;
 import io.github.nadya.assistant.ports.out.AuditPort;
 import io.github.nadya.assistant.ports.out.CalendarPort;
@@ -34,11 +44,9 @@ import io.github.nadya.assistant.ports.out.IdempotencyPort;
 import io.github.nadya.assistant.ports.out.IntentInterpreterPort;
 import io.github.nadya.assistant.ports.out.NotificationPort;
 import io.github.nadya.assistant.ports.out.UserContextPort;
-import org.springframework.boot.context.properties.bind.Bindable;
-import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.env.Environment;
 
 import java.time.Duration;
 
@@ -46,32 +54,57 @@ import java.time.Duration;
 public class AdapterBeansConfig {
 
     @Bean
-    UserContextPort userContextPort() {
+    UserContextPort userContextPort(
+            AssistantPersistenceProperties persistenceProperties,
+            ObjectProvider<JdbcUserContextAdapter> jdbcUserContextAdapter
+    ) {
+        if (persistenceProperties.usesJdbcState()) {
+            return jdbcUserContextAdapter.getObject();
+        }
         return new InMemoryUserContextAdapter();
     }
 
     @Bean
-    ConversationStatePort conversationStatePort() {
+    ConversationStatePort conversationStatePort(
+            AssistantPersistenceProperties persistenceProperties,
+            ObjectProvider<JdbcConversationStateAdapter> jdbcConversationStateAdapter
+    ) {
+        if (persistenceProperties.usesJdbcState()) {
+            return jdbcConversationStateAdapter.getObject();
+        }
         return new InMemoryConversationStateAdapter();
     }
 
     @Bean
-    IdempotencyPort idempotencyPort() {
+    IdempotencyPort idempotencyPort(
+            AssistantPersistenceProperties persistenceProperties,
+            ObjectProvider<JdbcIdempotencyAdapter> jdbcIdempotencyAdapter
+    ) {
+        if (persistenceProperties.usesJdbcState()) {
+            return jdbcIdempotencyAdapter.getObject();
+        }
         return new InMemoryIdempotencyAdapter();
     }
 
     @Bean
-    AuditPort auditPort() {
+    AuditPort auditPort(
+            AssistantPersistenceProperties persistenceProperties,
+            ObjectProvider<JdbcAuditAdapter> jdbcAuditAdapter
+    ) {
+        if (persistenceProperties.usesJdbcAudit()) {
+            return jdbcAuditAdapter.getObject();
+        }
         return new InMemoryAuditAdapter();
     }
 
     @Bean
-    GeminiProperties geminiProperties(Environment environment) {
-        return bindOrDefault(
-                environment,
-                "assistant.gemini",
-                GeminiProperties.class,
-                new GeminiProperties("gemini-2.5-flash", "", true, "https://generativelanguage.googleapis.com", true)
+    GeminiProperties geminiProperties(AssistantGeminiProperties properties) {
+        return new GeminiProperties(
+                properties.model(),
+                properties.apiKey(),
+                properties.stubMode(),
+                properties.baseUrl(),
+                properties.fallbackToStubOnError()
         );
     }
 
@@ -89,31 +122,47 @@ public class AdapterBeansConfig {
     }
 
     @Bean
-    GoogleCalendarProperties googleCalendarProperties(Environment environment) {
-        return bindOrDefault(
-                environment,
-                "assistant.google-calendar",
-                GoogleCalendarProperties.class,
-                new GoogleCalendarProperties(false, "primary", true, "", "https://www.googleapis.com/calendar/v3")
+    GoogleCalendarProperties googleCalendarProperties(AssistantGoogleCalendarProperties properties) {
+        return new GoogleCalendarProperties(
+                properties.enabled(),
+                properties.calendarId(),
+                properties.stubMode(),
+                properties.baseUrl()
         );
     }
 
     @Bean
-    GoogleCalendarClient googleCalendarClient(GoogleCalendarProperties googleCalendarProperties) {
+    GoogleOAuthProperties googleOAuthProperties(AssistantGoogleOAuthProperties properties) {
+        return new GoogleOAuthProperties(
+                properties.clientId(),
+                properties.clientSecret(),
+                properties.refreshToken(),
+                properties.accessToken(),
+                properties.tokenUrl(),
+                properties.parsedScopes(),
+                properties.credentialSource()
+        );
+    }
+
+    @Bean
+    GoogleCalendarOAuthSupport googleCalendarOAuthSupport(GoogleOAuthProperties googleOAuthProperties) {
+        return new GoogleCalendarOAuthSupport(googleOAuthProperties);
+    }
+
+    @Bean
+    GoogleCalendarClient googleCalendarClient(
+            GoogleCalendarProperties googleCalendarProperties,
+            GoogleCalendarOAuthSupport googleCalendarOAuthSupport
+    ) {
         if (googleCalendarProperties.stubMode()) {
             return new StubGoogleCalendarClient();
         }
-        return new HttpGoogleCalendarClient(googleCalendarProperties);
+        return new HttpGoogleCalendarClient(googleCalendarProperties, googleCalendarOAuthSupport);
     }
 
     @Bean
     GoogleCalendarRequestMapper googleCalendarRequestMapper() {
         return new GoogleCalendarRequestMapper();
-    }
-
-    @Bean
-    GoogleCalendarOAuthSupport googleCalendarOAuthSupport() {
-        return new GoogleCalendarOAuthSupport();
     }
 
     @Bean
@@ -132,21 +181,21 @@ public class AdapterBeansConfig {
     }
 
     @Bean
-    TelegramNotificationProperties telegramNotificationProperties(Environment environment) {
-        return bindOrDefault(
-                environment,
-                "assistant.telegram.notification",
-                TelegramNotificationProperties.class,
-                new TelegramNotificationProperties(false, "", true, "https://api.telegram.org")
+    TelegramNotificationProperties telegramNotificationProperties(AssistantTelegramProperties properties) {
+        return new TelegramNotificationProperties(
+                properties.notification().enabled(),
+                properties.botToken(),
+                properties.stubMode(),
+                properties.apiBaseUrl()
         );
     }
 
     @Bean
-    TelegramNotificationClient telegramNotificationClient(TelegramNotificationProperties telegramNotificationProperties) {
-        if (telegramNotificationProperties.stubMode()) {
+    TelegramNotificationClient telegramNotificationClient(TelegramNotificationProperties properties) {
+        if (properties.stubMode()) {
             return new StubTelegramNotificationClient();
         }
-        return new TelegramBotApiNotificationClient(telegramNotificationProperties.apiBaseUrl());
+        return new TelegramBotApiNotificationClient(properties.apiBaseUrl());
     }
 
     @Bean
@@ -168,22 +217,18 @@ public class AdapterBeansConfig {
     }
 
     @Bean
-    TelegramPollingProperties telegramPollingProperties(Environment environment) {
-        return bindOrDefault(
-                environment,
-                "assistant.telegram.polling",
-                TelegramPollingProperties.class,
-                new TelegramPollingProperties(
-                        false,
-                        "",
-                        Duration.ofSeconds(5),
-                        100,
-                        true,
-                        java.util.List.of(),
-                        10001L,
-                        20001L,
-                        "https://api.telegram.org"
-                )
+    TelegramPollingProperties telegramPollingProperties(AssistantTelegramProperties properties) {
+        return new TelegramPollingProperties(
+                properties.polling().enabled(),
+                properties.botToken(),
+                Duration.ofMillis(properties.polling().fixedDelayMs()),
+                properties.polling().timeoutSeconds(),
+                properties.polling().limit(),
+                properties.stubMode(),
+                properties.polling().sampleMessages(),
+                properties.polling().stubUserId(),
+                properties.polling().stubChatId(),
+                properties.apiBaseUrl()
         );
     }
 
@@ -213,11 +258,5 @@ public class AdapterBeansConfig {
                 handleIncomingMessageUseCase,
                 telegramPollingProperties
         );
-    }
-
-    private <T> T bindOrDefault(Environment environment, String prefix, Class<T> targetType, T defaultValue) {
-        return Binder.get(environment)
-                .bind(prefix, Bindable.of(targetType))
-                .orElse(defaultValue);
     }
 }
