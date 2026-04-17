@@ -100,6 +100,13 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
                   "missingFields": [],
                   "safeToExecute": false
                 }
+                Rules:
+                - Only use entity keys: title, startDate, startTime, allDay, location.
+                - Only use missingFields values from: ["title", "date", "time"].
+                - Only use ambiguityMarkers values from: ["time_is_range"].
+                - If date and time are explicitly present, missingFields must be [] and ambiguityMarkers must be [].
+                - Requests like "Запиши меня к стоматологу на завтра в 14" are calendar events.
+                - For that example, title should be "к стоматологу", startDate should be tomorrow, startTime should be "14:00", allDay should be "false".
                 Message: %s
                 Conversation status: %s
                 Preferred timezone: %s
@@ -315,6 +322,11 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         if (request.conversationState().isAwaitingClarification()) {
             return true;
         }
+        if (normalizedText.contains("запиши")
+                || normalizedText.contains("запишите")
+                || normalizedText.contains("записаться")) {
+            return true;
+        }
 
         return containsAny(
                 normalizedText,
@@ -336,6 +348,11 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
 
     private String extractTitle(String originalText) {
         String cleaned = originalText;
+        cleaned = stripPhraseIgnoreCase(cleaned, "запиши меня");
+        cleaned = stripPhraseIgnoreCase(cleaned, "запишите меня");
+        cleaned = stripPhraseIgnoreCase(cleaned, "запиши");
+        cleaned = stripPhraseIgnoreCase(cleaned, "запишите");
+        cleaned = stripPhraseIgnoreCase(cleaned, "записаться");
         for (String phrase : List.of(
                 "создай", "добавь", "запланируй", "напомни",
                 "schedule", "create", "add",
@@ -357,6 +374,10 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
                 .replaceAll("(?iu)(?:в|at)\\s+(офисе|zoom|online|онлайн)", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
+        cleaned = cleaned.replaceAll("(?iu)^меня\\s+", "");
+        while (cleaned.matches("(?iu).*(?:\\s+(?:на|в|at|to|for))$")) {
+            cleaned = cleaned.replaceAll("(?iu)\\s+(?:на|в|at|to|for)$", "").trim();
+        }
 
         return cleaned.isBlank() ? null : cleaned;
     }
