@@ -124,7 +124,7 @@ public class AdapterBeansConfig {
     @Bean
     GoogleCalendarProperties googleCalendarProperties(AssistantGoogleCalendarProperties properties) {
         return new GoogleCalendarProperties(
-                properties.enabled(),
+                properties.runtimeEnabled(),
                 properties.calendarId(),
                 properties.stubMode(),
                 properties.baseUrl()

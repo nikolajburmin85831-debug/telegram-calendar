@@ -60,7 +60,11 @@ public final class HttpGoogleCalendarClient implements GoogleCalendarClient {
                 response = sendInsert(request, accessTokenProvider.getAccessToken());
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("Google Calendar insert failed with status " + response.statusCode());
+                throw new IllegalStateException(
+                        "Google Calendar insert failed with status "
+                                + response.statusCode()
+                                + formatErrorDetail(response.body())
+                );
             }
 
             GoogleCalendarInsertEnvelope envelope = objectMapper.readValue(response.body(), GoogleCalendarInsertEnvelope.class);
@@ -101,6 +105,27 @@ public final class HttpGoogleCalendarClient implements GoogleCalendarClient {
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Google Calendar insert request could not be serialized", exception);
         }
+    }
+
+    private String formatErrorDetail(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return "";
+        }
+
+        try {
+            String message = objectMapper.readTree(responseBody).at("/error/message").asText("").trim();
+            if (!message.isBlank()) {
+                return ": " + message;
+            }
+        } catch (IOException ignored) {
+            // Fall through to raw body snippet.
+        }
+
+        String compactBody = responseBody.replaceAll("\\s+", " ").trim();
+        if (compactBody.isBlank()) {
+            return "";
+        }
+        return ": " + compactBody;
     }
 
     private GoogleCalendarInsertRequest toProviderRequest(InsertRequest request) {

@@ -25,4 +25,8 @@ public record AssistantGoogleCalendarProperties(
     public boolean stubMode() {
         return mode != IntegrationMode.REAL;
     }
+
+    public boolean runtimeEnabled() {
+        return enabled || mode == IntegrationMode.REAL;
+    }
 }
