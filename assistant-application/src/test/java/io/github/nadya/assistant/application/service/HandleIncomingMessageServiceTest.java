@@ -13,6 +13,8 @@ import io.github.nadya.assistant.domain.conversation.ConversationState;
 import io.github.nadya.assistant.domain.conversation.ConversationStatus;
 import io.github.nadya.assistant.domain.conversation.IncomingUserMessage;
 import io.github.nadya.assistant.domain.execution.ExecutionResult;
+import io.github.nadya.assistant.domain.household.HouseholdMember;
+import io.github.nadya.assistant.domain.household.HouseholdNotificationSettings;
 import io.github.nadya.assistant.domain.intent.AssistantIntent;
 import io.github.nadya.assistant.domain.intent.IntentInterpretation;
 import io.github.nadya.assistant.domain.intent.IntentType;
@@ -31,6 +33,7 @@ import io.github.nadya.assistant.ports.out.NotificationPort;
 import io.github.nadya.assistant.ports.out.UserContextPort;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -544,6 +547,286 @@ class HandleIncomingMessageServiceTest {
         assertEquals(2, notificationPort.commands.size());
     }
 
+    @Test
+    void shouldRequireConfirmationWhenExecutionGuardFlagsFarFutureEvent() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+        InMemoryConversationStatePort conversationStatePort = new InMemoryConversationStatePort();
+
+        HandleIncomingMessageService service = createService(
+                request -> completeInterpretation("проверка", "2027-11-20", "09:00"),
+                new InMemoryUserContextPort(),
+                conversationStatePort,
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort(),
+                new CalendarExecutionGuardSettings(120, 500, Duration.ofHours(24), 30),
+                Clock.fixed(Instant.parse("2026-04-16T20:15:30Z"), java.time.ZoneOffset.UTC),
+                HouseholdNotificationSettings.disabled()
+        );
+
+        ExecutionResult first = service.handle(sampleMessage("msg-future-1", "create future check"));
+        ConversationState pendingState = conversationStatePort.findByConversationId("telegram-chat:101").orElseThrow();
+        assertTrue(first.success());
+        assertTrue(first.userSummary().contains("Ответьте"));
+        assertTrue(calendarPort.createdDrafts.isEmpty());
+        assertEquals(ConversationStatus.AWAITING_CONFIRMATION, pendingState.status());
+
+        ExecutionResult second = service.handle(sampleMessage("msg-future-2", "да"));
+        ConversationState state = conversationStatePort.findByConversationId("telegram-chat:101").orElseThrow();
+        assertTrue(second.success());
+        assertEquals(1, calendarPort.createdDrafts.size());
+        assertEquals(ConversationStatus.COMPLETED, state.status());
+    }
+
+    @Test
+    void shouldAskAgainOnFirstInvalidTimeDuringResumedClarification() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+        InMemoryConversationStatePort conversationStatePort = new InMemoryConversationStatePort();
+
+        HandleIncomingMessageService service = createService(
+                request -> switch (request.message().text()) {
+                    case "Напомни завтра позвонить маме" -> interpretation(
+                            Map.of(
+                                    "title", "позвонить маме",
+                                    "startDate", "2026-04-17",
+                                    "allDay", "false"
+                            ),
+                            List.of(),
+                            List.of("time"),
+                            false,
+                            0.72d
+                    );
+                    case "в 25:99" -> interpretation(
+                            Map.of(
+                                    "startTime", "25:99",
+                                    "allDay", "false"
+                            ),
+                            List.of(),
+                            List.of(),
+                            true,
+                            0.95d
+                    );
+                    default -> throw new IllegalStateException("Unexpected message: " + request.message().text());
+                },
+                new InMemoryUserContextPort(),
+                conversationStatePort,
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        service.handle(sampleMessage("msg-guard-clarify-1", "Напомни завтра позвонить маме"));
+        ExecutionResult second = service.handle(sampleMessage("msg-guard-clarify-2", "в 25:99"));
+
+        ConversationState state = conversationStatePort.findByConversationId("telegram-chat:101").orElseThrow();
+        assertTrue(second.success());
+        assertTrue(second.userSummary().contains("некорректно"));
+        assertTrue(calendarPort.createdDrafts.isEmpty());
+        assertEquals(ConversationStatus.AWAITING_TIME, state.status());
+        assertEquals(1, state.invalidClarificationAttempts());
+    }
+
+    @Test
+    void shouldFailAfterInvalidClarificationAttemptLimitIsReached() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+        InMemoryConversationStatePort conversationStatePort = new InMemoryConversationStatePort();
+
+        HandleIncomingMessageService service = createService(
+                request -> switch (request.message().text()) {
+                    case "Напомни завтра позвонить маме" -> interpretation(
+                            Map.of(
+                                    "title", "позвонить маме",
+                                    "startDate", "2026-04-17",
+                                    "allDay", "false"
+                            ),
+                            List.of(),
+                            List.of("time"),
+                            false,
+                            0.72d
+                    );
+                    case "в 25:99", "в 26:99" -> interpretation(
+                            Map.of(
+                                    "startTime", request.message().text().substring(2),
+                                    "allDay", "false"
+                            ),
+                            List.of(),
+                            List.of(),
+                            true,
+                            0.95d
+                    );
+                    default -> throw new IllegalStateException("Unexpected message: " + request.message().text());
+                },
+                new InMemoryUserContextPort(),
+                conversationStatePort,
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        service.handle(sampleMessage("msg-guard-limit-1", "Напомни завтра позвонить маме"));
+        service.handle(sampleMessage("msg-guard-limit-2", "в 25:99"));
+        ExecutionResult third = service.handle(sampleMessage("msg-guard-limit-3", "в 26:99"));
+
+        ConversationState state = conversationStatePort.findByConversationId("telegram-chat:101").orElseThrow();
+        assertFalse(third.success());
+        assertTrue(third.userSummary().contains("несколько раз"));
+        assertTrue(calendarPort.createdDrafts.isEmpty());
+        assertEquals(ConversationStatus.FAILED, state.status());
+    }
+
+    @Test
+    void shouldTreatRawInvalidTimeAsInvalidClarificationAttemptWhenInterpreterMissesIt() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+        InMemoryConversationStatePort conversationStatePort = new InMemoryConversationStatePort();
+
+        HandleIncomingMessageService service = createService(
+                request -> switch (request.message().text()) {
+                    case "Напомни завтра позвонить маме" -> interpretation(
+                            Map.of(
+                                    "title", "позвонить маме",
+                                    "startDate", "2026-04-17",
+                                    "allDay", "false"
+                            ),
+                            List.of(),
+                            List.of("time"),
+                            false,
+                            0.72d
+                    );
+                    case "25:99" -> interpretation(
+                            Map.of(),
+                            List.of(),
+                            List.of("title", "date"),
+                            false,
+                            0.60d
+                    );
+                    default -> throw new IllegalStateException("Unexpected message: " + request.message().text());
+                },
+                new InMemoryUserContextPort(),
+                conversationStatePort,
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        service.handle(sampleMessage("msg-raw-invalid-1", "Напомни завтра позвонить маме"));
+        ExecutionResult second = service.handle(sampleMessage("msg-raw-invalid-2", "25:99"));
+
+        ConversationState state = conversationStatePort.findByConversationId("telegram-chat:101").orElseThrow();
+        assertTrue(second.success());
+        assertTrue(second.userSummary().contains("некорректно"));
+        assertTrue(calendarPort.createdDrafts.isEmpty());
+        assertEquals(ConversationStatus.AWAITING_TIME, state.status());
+        assertEquals(1, state.invalidClarificationAttempts());
+    }
+
+    @Test
+    void shouldSendHouseholdNotificationWhenWifeCreatesEvent() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+
+        HandleIncomingMessageService service = createService(
+                request -> completeInterpretation("стоматолог", "2026-04-17", "14:00"),
+                new InMemoryUserContextPort(),
+                new InMemoryConversationStatePort(),
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort(),
+                new CalendarExecutionGuardSettings(120, 500, Duration.ofHours(24), 180),
+                Clock.fixed(Instant.parse("2026-04-16T20:15:30Z"), java.time.ZoneOffset.UTC),
+                wifeToMeHousehold()
+        );
+
+        ExecutionResult result = service.handle(sampleMessageFor(
+                "telegram-user:84",
+                "telegram-chat:202",
+                "wife-create-1",
+                "Создай стоматолог завтра в 14:00"
+        ));
+
+        assertTrue(result.success());
+        assertEquals(1, calendarPort.createdDrafts.size());
+        assertEquals(2, notificationPort.commands.size());
+        assertTrue(notificationPort.commands.stream().anyMatch(command ->
+                command.conversationId().equals("telegram-chat:101")
+                        && command.text().contains("Жена создала событие")
+                        && command.text().contains("стоматолог")
+        ));
+    }
+
+    @Test
+    void shouldNotSendHouseholdNotificationWhenCalendarExecutionFails() {
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+
+        HandleIncomingMessageService service = createService(
+                request -> completeInterpretation("стоматолог", "2026-04-17", "14:00"),
+                new InMemoryUserContextPort(),
+                new InMemoryConversationStatePort(),
+                new InMemoryIdempotencyPort(),
+                new FailingCalendarPort(),
+                notificationPort,
+                new RecordingAuditPort(),
+                new CalendarExecutionGuardSettings(120, 500, Duration.ofHours(24), 180),
+                Clock.fixed(Instant.parse("2026-04-16T20:15:30Z"), java.time.ZoneOffset.UTC),
+                wifeToMeHousehold()
+        );
+
+        ExecutionResult result = service.handle(sampleMessageFor(
+                "telegram-user:84",
+                "telegram-chat:202",
+                "wife-create-failed",
+                "Создай стоматолог завтра в 14:00"
+        ));
+
+        assertFalse(result.success());
+        assertEquals(1, notificationPort.commands.size());
+        assertTrue(notificationPort.commands.stream().noneMatch(command -> command.conversationId().equals("telegram-chat:101")));
+    }
+
+    @Test
+    void shouldNotDuplicateHouseholdNotificationWhenDuplicateMessageIsSkipped() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+
+        HandleIncomingMessageService service = createService(
+                request -> completeInterpretation("стоматолог", "2026-04-17", "14:00"),
+                new InMemoryUserContextPort(),
+                new InMemoryConversationStatePort(),
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort(),
+                new CalendarExecutionGuardSettings(120, 500, Duration.ofHours(24), 180),
+                Clock.fixed(Instant.parse("2026-04-16T20:15:30Z"), java.time.ZoneOffset.UTC),
+                wifeToMeHousehold()
+        );
+
+        IncomingUserMessage message = sampleMessageFor(
+                "telegram-user:84",
+                "telegram-chat:202",
+                "wife-duplicate-1",
+                "Создай стоматолог завтра в 14:00"
+        );
+
+        service.handle(message);
+        ExecutionResult duplicateResult = service.handle(message);
+
+        assertTrue(duplicateResult.success());
+        assertEquals("duplicate_message_skipped", duplicateResult.auditDetails());
+        assertEquals(1, calendarPort.createdDrafts.size());
+        assertEquals(1, notificationPort.commands.stream()
+                .filter(command -> command.conversationId().equals("telegram-chat:101"))
+                .count());
+    }
+
     private HandleIncomingMessageService createService(
             InterpretationScript interpretationScript,
             UserContextPort userContextPort,
@@ -553,6 +836,32 @@ class HandleIncomingMessageServiceTest {
             NotificationPort notificationPort,
             AuditPort auditPort
     ) {
+        return createService(
+                interpretationScript,
+                userContextPort,
+                conversationStatePort,
+                idempotencyPort,
+                calendarPort,
+                notificationPort,
+                auditPort,
+                new CalendarExecutionGuardSettings(120, 500, Duration.ofHours(24), 180),
+                Clock.fixed(Instant.parse("2026-04-16T20:15:30Z"), java.time.ZoneOffset.UTC),
+                HouseholdNotificationSettings.disabled()
+        );
+    }
+
+    private HandleIncomingMessageService createService(
+            InterpretationScript interpretationScript,
+            UserContextPort userContextPort,
+            ConversationStatePort conversationStatePort,
+            IdempotencyPort idempotencyPort,
+            CalendarPort calendarPort,
+            NotificationPort notificationPort,
+            AuditPort auditPort,
+            CalendarExecutionGuardSettings guardSettings,
+            Clock clock,
+            HouseholdNotificationSettings householdSettings
+    ) {
         return new HandleIncomingMessageService(
                 userContextPort,
                 conversationStatePort,
@@ -561,7 +870,10 @@ class HandleIncomingMessageServiceTest {
                 notificationPort,
                 auditPort,
                 new IntentRoutingService(new ConfirmationPolicyService()),
-                new CreateCalendarEventHandler(calendarPort),
+                new CreateCalendarEventHandler(calendarPort, new HouseholdNotificationService(householdSettings)),
+                new CalendarEventDraftFactory(),
+                new CalendarExecutionGuard(guardSettings, clock),
+                new ClarificationRetryService(new ClarificationRetrySettings(2)),
                 new ClarificationHandler(),
                 new PendingConfirmationHandler(),
                 new PendingActionFactory(),
@@ -609,12 +921,21 @@ class HandleIncomingMessageServiceTest {
     }
 
     private IncomingUserMessage sampleMessage(String externalMessageId, String text) {
+        return sampleMessageFor("telegram-user:42", "telegram-chat:101", externalMessageId, text);
+    }
+
+    private IncomingUserMessage sampleMessageFor(
+            String userId,
+            String conversationId,
+            String externalMessageId,
+            String text
+    ) {
         return new IncomingUserMessage(
                 "internal-" + externalMessageId,
                 externalMessageId,
-                new UserIdentity("telegram-user:42"),
+                new UserIdentity(userId),
                 ChannelType.TELEGRAM,
-                "telegram-chat:101",
+                conversationId,
                 text,
                 Instant.parse("2026-04-16T20:15:30Z")
         );
@@ -628,6 +949,28 @@ class HandleIncomingMessageServiceTest {
                 ConfirmationPreference.REQUIRE_CONFIRMATION,
                 Duration.ofHours(1),
                 "telegram-chat:101"
+        );
+    }
+
+    private HouseholdNotificationSettings wifeToMeHousehold() {
+        return new HouseholdNotificationSettings(
+                true,
+                Map.of(
+                        "me", new HouseholdMember(
+                                "me",
+                                "Я",
+                                new UserIdentity("telegram-user:42"),
+                                List.of("telegram-chat:101"),
+                                List.of()
+                        ),
+                        "wife", new HouseholdMember(
+                                "wife",
+                                "Жена",
+                                new UserIdentity("telegram-user:84"),
+                                List.of("telegram-chat:202"),
+                                List.of("me")
+                        )
+                )
         );
     }
 
@@ -656,6 +999,13 @@ class HandleIncomingMessageServiceTest {
         public CalendarEventReference createEvent(CalendarEventDraft draft) {
             createdDrafts.add(draft);
             return new CalendarEventReference("calendar-ref-" + createdDrafts.size(), "stub://" + createdDrafts.size());
+        }
+    }
+
+    private static final class FailingCalendarPort implements CalendarPort {
+        @Override
+        public CalendarEventReference createEvent(CalendarEventDraft draft) {
+            throw new IllegalStateException("calendar unavailable");
         }
     }
 

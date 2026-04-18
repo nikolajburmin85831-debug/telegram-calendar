@@ -6,12 +6,7 @@ import io.github.nadya.assistant.domain.intent.AssistantIntent;
 import io.github.nadya.assistant.domain.intent.IntentInterpretation;
 import io.github.nadya.assistant.domain.intent.IntentType;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 public final class GeminiInterpretationMapper {
 
@@ -117,7 +112,12 @@ public final class GeminiInterpretationMapper {
             case "title", "summary", "subject", "name", "eventtitle" -> "title";
             case "startdate", "date", "day" -> "startDate";
             case "starttime", "time", "hour" -> "startTime";
+            case "enddate" -> "endDate";
+            case "endtime" -> "endTime";
+            case "durationminutes", "duration" -> "durationMinutes";
             case "allday", "wholeday", "fullday" -> "allDay";
+            case "timezone", "tz" -> "timezone";
+            case "recurrence", "recurrencerule", "rrule" -> "recurrenceRule";
             case "location", "place", "venue" -> "location";
             default -> null;
         };

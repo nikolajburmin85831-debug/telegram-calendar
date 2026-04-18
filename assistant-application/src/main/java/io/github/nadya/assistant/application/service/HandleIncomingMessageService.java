@@ -6,10 +6,13 @@ import io.github.nadya.assistant.application.handler.CreateCalendarEventHandler;
 import io.github.nadya.assistant.application.handler.PendingConfirmationHandler;
 import io.github.nadya.assistant.application.orchestration.IntentRoutingService;
 import io.github.nadya.assistant.application.result.HandlingOutcome;
+import io.github.nadya.assistant.domain.calendar.CalendarActionType;
 import io.github.nadya.assistant.domain.conversation.ConversationState;
 import io.github.nadya.assistant.domain.conversation.ConversationStatus;
 import io.github.nadya.assistant.domain.conversation.IncomingUserMessage;
 import io.github.nadya.assistant.domain.conversation.PendingAction;
+import io.github.nadya.assistant.domain.execution.ExecutionApproval;
+import io.github.nadya.assistant.domain.execution.ExecutionGuardResult;
 import io.github.nadya.assistant.domain.execution.ExecutionResult;
 import io.github.nadya.assistant.domain.intent.IntentInterpretation;
 import io.github.nadya.assistant.domain.policy.ExecutionDecision;
@@ -39,6 +42,9 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
     private final AuditPort auditPort;
     private final IntentRoutingService intentRoutingService;
     private final CreateCalendarEventHandler createCalendarEventHandler;
+    private final CalendarEventDraftFactory calendarEventDraftFactory;
+    private final CalendarExecutionGuard calendarExecutionGuard;
+    private final ClarificationRetryService clarificationRetryService;
     private final ClarificationHandler clarificationHandler;
     private final PendingConfirmationHandler pendingConfirmationHandler;
     private final PendingActionFactory pendingActionFactory;
@@ -56,6 +62,9 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
             AuditPort auditPort,
             IntentRoutingService intentRoutingService,
             CreateCalendarEventHandler createCalendarEventHandler,
+            CalendarEventDraftFactory calendarEventDraftFactory,
+            CalendarExecutionGuard calendarExecutionGuard,
+            ClarificationRetryService clarificationRetryService,
             ClarificationHandler clarificationHandler,
             PendingConfirmationHandler pendingConfirmationHandler,
             PendingActionFactory pendingActionFactory,
@@ -72,6 +81,9 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         this.auditPort = auditPort;
         this.intentRoutingService = intentRoutingService;
         this.createCalendarEventHandler = createCalendarEventHandler;
+        this.calendarEventDraftFactory = calendarEventDraftFactory;
+        this.calendarExecutionGuard = calendarExecutionGuard;
+        this.clarificationRetryService = clarificationRetryService;
         this.clarificationHandler = clarificationHandler;
         this.pendingConfirmationHandler = pendingConfirmationHandler;
         this.pendingActionFactory = pendingActionFactory;
@@ -119,6 +131,7 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
 
             conversationStatePort.save(outcome.nextConversationState());
             notifyUser(message, outcome.executionResult());
+            notifyAdditionalNotifications(outcome.additionalNotifications());
             auditPort.record(new AuditEntry(
                     message.userId(),
                     message.conversationId(),
@@ -198,8 +211,17 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                 new IntentInterpretationRequest(message, userContext, conversationState)
         );
         logInterpretation("new_message", message, interpretation);
+        auditInterpretation("new_message", message, interpretation);
         ExecutionDecision decision = intentRoutingService.decide(message, userContext, interpretation);
-        return handleDecision(message, message, userContext, conversationState, interpretation, decision);
+        return handleDecision(
+                message,
+                message,
+                userContext,
+                conversationState,
+                interpretation,
+                decision,
+                ExecutionApproval.NOT_CONFIRMED
+        );
     }
 
     private HandlingOutcome handlePendingClarification(
@@ -222,12 +244,16 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         if (pendingFlowInterruptionService.isUnrelatedNewRequest(message, pendingAction, followUpInterpretation)) {
             return clarificationInterruptionOutcome(conversationState);
         }
+        if (clarificationRetryService.isObviouslyInvalidInput(conversationState, message.text())) {
+            return clarificationRetryService.handleInvalidAttempt(conversationState);
+        }
         IntentInterpretation mergedInterpretation = pendingActionMergeService.merge(
                 pendingAction,
                 conversationState.clarificationRequest(),
                 followUpInterpretation
         );
         logInterpretation("clarification_follow_up", message, mergedInterpretation);
+        auditInterpretation("clarification_follow_up", message, mergedInterpretation);
         ExecutionDecision decision = intentRoutingService.decide(message, userContext, mergedInterpretation);
         return handleDecision(
                 message,
@@ -235,7 +261,8 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                 userContext,
                 conversationState,
                 mergedInterpretation,
-                decision
+                decision,
+                ExecutionApproval.NOT_CONFIRMED
         );
     }
 
@@ -261,7 +288,8 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                     userContext,
                     conversationState,
                     conversationState.pendingAction().interpretation(),
-                    ExecutionDecision.executeNow()
+                    ExecutionDecision.executeNow(),
+                    ExecutionApproval.CONFIRMED
             );
             case REJECT -> cancellationOutcome(
                     conversationState,
@@ -286,7 +314,8 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
             UserContext userContext,
             ConversationState conversationState,
             IntentInterpretation interpretation,
-            ExecutionDecision decision
+            ExecutionDecision decision,
+            ExecutionApproval executionApproval
     ) {
         LOGGER.log(
                 System.Logger.Level.DEBUG,
@@ -296,19 +325,14 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                 interpretation.intentType()
         );
         return switch (decision.outcome()) {
-            case EXECUTE_NOW -> {
-                ConversationState executingState = conversationState.executing();
-                conversationStatePort.save(executingState);
-                yield createCalendarEventHandler.handle(
-                        new MessageHandlingContext(
-                                triggeringMessage,
-                                sourceMessage,
-                                userContext,
-                                executingState,
-                                interpretation
-                        )
-                );
-            }
+            case EXECUTE_NOW -> handleExecution(
+                    triggeringMessage,
+                    sourceMessage,
+                    userContext,
+                    conversationState,
+                    interpretation,
+                    executionApproval
+            );
             case ASK_FOR_CLARIFICATION -> clarificationHandler.handle(
                     conversationState,
                     decision.clarificationRequest(),
@@ -323,6 +347,76 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                     ExecutionResult.rejected(decision.rejectionReason(), "intent_rejected"),
                     conversationState.failed()
             );
+        };
+    }
+
+    private HandlingOutcome handleExecution(
+            IncomingUserMessage triggeringMessage,
+            IncomingUserMessage sourceMessage,
+            UserContext userContext,
+            ConversationState conversationState,
+            IntentInterpretation interpretation,
+            ExecutionApproval executionApproval
+    ) {
+        MessageHandlingContext context = new MessageHandlingContext(
+                triggeringMessage,
+                sourceMessage,
+                userContext,
+                conversationState,
+                interpretation,
+                executionApproval
+        );
+
+        return switch (interpretation.intentType()) {
+            case CREATE_CALENDAR_EVENT -> executeCreateEvent(context);
+            default -> new HandlingOutcome(
+                    ExecutionResult.rejected("Пока я умею выполнять только создание событий календаря.", "unsupported_execution_intent"),
+                    conversationState.failed()
+            );
+        };
+    }
+
+    private HandlingOutcome executeCreateEvent(MessageHandlingContext context) {
+        var draft = calendarEventDraftFactory.build(context);
+        ExecutionGuardResult guardResult = calendarExecutionGuard.evaluate(CalendarActionType.CREATE, draft, context);
+        logGuardDecision(context, guardResult);
+        auditGuardDecision(context, guardResult);
+
+        return switch (guardResult.outcome()) {
+            case ALLOW -> {
+                ConversationState executingState = context.conversationState().executing();
+                conversationStatePort.save(executingState);
+                yield createCalendarEventHandler.handle(
+                        new MessageHandlingContext(
+                                context.triggeringMessage(),
+                                context.sourceMessage(),
+                                context.userContext(),
+                                executingState,
+                                context.interpretation(),
+                                context.executionApproval()
+                        ),
+                        draft
+                );
+            }
+            case REQUIRE_CLARIFICATION -> clarificationHandler.handle(
+                    context.conversationState(),
+                    guardResult.clarificationRequest(),
+                    pendingActionFactory.create(context.sourceMessage(), context.interpretation())
+            );
+            case REQUIRE_CONFIRMATION -> pendingConfirmationHandler.handle(
+                    context.conversationState(),
+                    guardResult.pendingConfirmation(),
+                    pendingActionFactory.create(context.sourceMessage(), context.interpretation())
+            );
+            case REJECT -> {
+                if (clarificationRetryService.isRetryableGuardRejection(context.conversationState(), guardResult)) {
+                    yield clarificationRetryService.handleInvalidAttempt(context.conversationState());
+                }
+                yield new HandlingOutcome(
+                        ExecutionResult.rejected(guardResult.rejectionReason(), "execution_guard_rejected"),
+                        context.conversationState().failed()
+                );
+            }
         };
     }
 
@@ -371,6 +465,20 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         ));
     }
 
+    private void notifyAdditionalNotifications(Iterable<NotificationCommand> notifications) {
+        for (NotificationCommand notification : notifications) {
+            try {
+                notificationPort.send(notification);
+            } catch (RuntimeException exception) {
+                LOGGER.log(
+                        System.Logger.Level.WARNING,
+                        "Additional notification failed for conversation " + notification.conversationId(),
+                        exception
+                );
+            }
+        }
+    }
+
     private void logInterpretation(String stage, IncomingUserMessage message, IntentInterpretation interpretation) {
         LOGGER.log(
                 System.Logger.Level.DEBUG,
@@ -383,5 +491,42 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
                 interpretation.ambiguityMarkers(),
                 interpretation.safeToExecute()
         );
+    }
+
+    private void auditInterpretation(String stage, IncomingUserMessage message, IntentInterpretation interpretation) {
+        auditPort.record(new AuditEntry(
+                message.userId(),
+                message.conversationId(),
+                "INTERPRETED_INTENT",
+                Instant.now(),
+                "stage=%s;intent=%s;missing=%s;ambiguity=%s;safeToExecute=%s".formatted(
+                        stage,
+                        interpretation.intentType(),
+                        interpretation.missingFields(),
+                        interpretation.ambiguityMarkers(),
+                        interpretation.safeToExecute()
+                )
+        ));
+    }
+
+    private void logGuardDecision(MessageHandlingContext context, ExecutionGuardResult guardResult) {
+        LOGGER.log(
+                System.Logger.Level.DEBUG,
+                "Execution guard decision for conversation {0}: outcome={1}, risk={2}, violations={3}",
+                context.triggeringMessage().conversationId(),
+                guardResult.outcome(),
+                guardResult.riskLevel(),
+                guardResult.violations()
+        );
+    }
+
+    private void auditGuardDecision(MessageHandlingContext context, ExecutionGuardResult guardResult) {
+        auditPort.record(new AuditEntry(
+                context.sourceMessage().userId(),
+                context.sourceMessage().conversationId(),
+                "EXECUTION_GUARD",
+                Instant.now(),
+                guardResult.auditSummary()
+        ));
     }
 }

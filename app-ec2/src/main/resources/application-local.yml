@@ -4,6 +4,12 @@ spring:
       on-profile: local
 
 assistant:
+  clarification:
+    max-invalid-attempts: 2
+
+  household:
+    enabled: false
+
   gemini:
     mode: stub
     fallback-to-stub-on-error: true

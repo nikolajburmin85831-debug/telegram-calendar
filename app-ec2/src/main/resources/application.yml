@@ -22,6 +22,28 @@ assistant:
     default-meeting-duration-minutes: ${APP_DEFAULT_MEETING_DURATION_MINUTES:30}
     idempotency-ttl-hours: ${APP_IDEMPOTENCY_TTL_HOURS:24}
 
+  execution-guard:
+    max-title-length: ${APP_GUARD_MAX_TITLE_LENGTH:120}
+    max-description-length: ${APP_GUARD_MAX_DESCRIPTION_LENGTH:500}
+    max-event-duration-hours: ${APP_GUARD_MAX_EVENT_DURATION_HOURS:24}
+    confirmation-horizon-days: ${APP_GUARD_CONFIRMATION_HORIZON_DAYS:180}
+
+  clarification:
+    max-invalid-attempts: ${APP_CLARIFICATION_MAX_INVALID_ATTEMPTS:2}
+
+  household:
+    enabled: ${HOUSEHOLD_NOTIFICATIONS_ENABLED:false}
+    me:
+      display-name: ${HOUSEHOLD_ME_DISPLAY_NAME:Я}
+      telegram-user-id: ${HOUSEHOLD_ME_TELEGRAM_USER_ID:}
+      chat-ids: ${HOUSEHOLD_ME_CHAT_IDS:}
+      notify-members: ${HOUSEHOLD_ME_NOTIFY_MEMBERS:}
+    wife:
+      display-name: ${HOUSEHOLD_WIFE_DISPLAY_NAME:Жена}
+      telegram-user-id: ${HOUSEHOLD_WIFE_TELEGRAM_USER_ID:}
+      chat-ids: ${HOUSEHOLD_WIFE_CHAT_IDS:}
+      notify-members: ${HOUSEHOLD_WIFE_NOTIFY_MEMBERS:me}
+
   gemini:
     mode: ${APP_GEMINI_MODE:stub}
     model: ${GEMINI_MODEL:gemma-4-26b-a4b-it}

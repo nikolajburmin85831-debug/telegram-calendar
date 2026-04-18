@@ -6,7 +6,6 @@ import io.github.nadya.assistant.domain.common.Timezone;
 import java.time.ZonedDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Objects;
 
 public record CalendarEventDraft(
         String title,
@@ -21,13 +20,13 @@ public record CalendarEventDraft(
 ) {
 
     public CalendarEventDraft {
-        title = Objects.requireNonNullElse(title, "").trim();
-        if (title.isBlank()) {
-            throw new IllegalArgumentException("title must not be blank");
-        }
-        start = Objects.requireNonNull(start, "start must not be null");
-        end = Objects.requireNonNull(end, "end must not be null");
-        timezone = Objects.requireNonNull(timezone, "timezone must not be null");
+        title = title == null ? "" : title.trim();
+        description = description == null ? "" : description.trim();
+        location = location == null ? "" : location.trim();
         sourceMetadata = Map.copyOf(sourceMetadata == null ? Map.of() : new LinkedHashMap<>(sourceMetadata));
+    }
+
+    public String metadata(String key) {
+        return sourceMetadata.getOrDefault(key, "");
     }
 }

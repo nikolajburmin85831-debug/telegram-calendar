@@ -4,6 +4,12 @@ spring:
       on-profile: smoke
 
 assistant:
+  clarification:
+    max-invalid-attempts: ${APP_CLARIFICATION_MAX_INVALID_ATTEMPTS:2}
+
+  household:
+    enabled: ${HOUSEHOLD_NOTIFICATIONS_ENABLED:false}
+
   gemini:
     mode: real
     fallback-to-stub-on-error: true
