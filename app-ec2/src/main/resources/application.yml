@@ -1,13 +1,21 @@
 spring:
   application:
     name: telegram-calendar
+  config:
+    import: >-
+      optional:file:./.env[.properties][encoding=utf-8],
+      optional:file:../.env[.properties][encoding=utf-8],
+      optional:configtree:./secrets/,
+      optional:configtree:../secrets/,
+      optional:configtree:/run/secrets/,
+      optional:configtree:/etc/secrets/
   main:
     web-application-type: none
 
 assistant:
   http:
     connect-timeout-seconds: ${HTTP_CLIENT_CONNECT_TIMEOUT_SECONDS:15}
-    use-system-proxy: ${HTTP_USE_SYSTEM_PROXY:false}
+    use-system-proxy: ${HTTP_USE_SYSTEM_PROXY:true}
     proxy:
       enabled: ${HTTP_PROXY_ENABLED:false}
       url: ${HTTP_PROXY_URL:${HTTPS_PROXY:}}
@@ -32,7 +40,7 @@ assistant:
     max-invalid-attempts: ${APP_CLARIFICATION_MAX_INVALID_ATTEMPTS:2}
 
   household:
-    enabled: ${HOUSEHOLD_NOTIFICATIONS_ENABLED:false}
+    enabled: ${HOUSEHOLD_NOTIFICATIONS_ENABLED:true}
     me:
       display-name: ${HOUSEHOLD_ME_DISPLAY_NAME:Я}
       telegram-user-id: ${HOUSEHOLD_ME_TELEGRAM_USER_ID:}
@@ -45,15 +53,15 @@ assistant:
       notify-members: ${HOUSEHOLD_WIFE_NOTIFY_MEMBERS:me}
 
   gemini:
-    mode: ${APP_GEMINI_MODE:stub}
+    mode: ${APP_GEMINI_MODE:real}
     model: ${GEMINI_MODEL:gemma-4-26b-a4b-it}
     api-key: ${GEMINI_API_KEY:}
     base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
     fallback-to-stub-on-error: ${GEMINI_FALLBACK_TO_STUB_ON_ERROR:true}
 
   google-calendar:
-    mode: ${APP_GOOGLE_CALENDAR_MODE:stub}
-    enabled: ${GOOGLE_CALENDAR_REAL_ENABLED:false}
+    mode: ${APP_GOOGLE_CALENDAR_MODE:real}
+    enabled: ${GOOGLE_CALENDAR_REAL_ENABLED:${APP_GOOGLE_CALENDAR_ENABLED:true}}
     calendar-id: ${GOOGLE_CALENDAR_ID:primary}
     base-url: ${GOOGLE_CALENDAR_BASE_URL:https://www.googleapis.com/calendar/v3}
     default-timezone: ${GOOGLE_CALENDAR_DEFAULT_TIMEZONE:Europe/Moscow}
@@ -68,11 +76,11 @@ assistant:
     credential-source: ${GOOGLE_OAUTH_CREDENTIAL_SOURCE:env}
 
   telegram:
-    mode: ${APP_TELEGRAM_MODE:stub}
+    mode: ${APP_TELEGRAM_MODE:real}
     bot-token: ${TELEGRAM_BOT_TOKEN:}
     api-base-url: ${TELEGRAM_BASE_URL:https://api.telegram.org}
     polling:
-      enabled: ${TELEGRAM_POLLING_ENABLED:false}
+      enabled: ${TELEGRAM_POLLING_ENABLED:${APP_TELEGRAM_POLLING_ENABLED:true}}
       fixed-delay-ms: ${TELEGRAM_POLLING_FIXED_DELAY_MS:1500}
       timeout-seconds: ${TELEGRAM_POLLING_TIMEOUT_SECONDS:20}
       limit: ${TELEGRAM_POLLING_LIMIT:100}
@@ -80,7 +88,7 @@ assistant:
       stub-user-id: ${TELEGRAM_STUB_USER_ID:10001}
       stub-chat-id: ${TELEGRAM_STUB_CHAT_ID:20001}
     notification:
-      enabled: ${TELEGRAM_NOTIFICATION_ENABLED:true}
+      enabled: ${TELEGRAM_NOTIFICATION_ENABLED:${APP_TELEGRAM_NOTIFICATION_ENABLED:true}}
 
   persistence:
     mode: ${APP_PERSISTENCE_MODE:inmemory}
