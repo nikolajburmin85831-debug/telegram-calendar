@@ -42,6 +42,7 @@ public final class CalendarExecutionGuard {
         ZoneId effectiveZone = validateTimezone(draft, rejectViolations);
         validateScheduleShape(draft, rejectViolations, clarificationViolations, effectiveZone);
         validateRangeAndDuration(draft, rejectViolations);
+        validateTemporalBounds(actionType, draft, rejectViolations, effectiveZone);
         validateConfirmationPolicies(draft, context.executionApproval(), confirmationViolations, effectiveZone);
 
         if (!rejectViolations.isEmpty()) {
@@ -196,6 +197,38 @@ public final class CalendarExecutionGuard {
             rejectViolations.add(reject(
                     "duration_too_long",
                     "Не могу безопасно выполнить действие: длительность события превышает безопасный лимит."
+            ));
+        }
+    }
+
+    private void validateTemporalBounds(
+            CalendarActionType actionType,
+            CalendarEventDraft draft,
+            List<GuardViolation> rejectViolations,
+            ZoneId effectiveZone
+    ) {
+        if ((actionType != CalendarActionType.CREATE && actionType != CalendarActionType.UPDATE) || draft.start() == null) {
+            return;
+        }
+
+        ZoneId comparisonZone = effectiveZone == null ? draft.start().getZone() : effectiveZone;
+        ZonedDateTime start = draft.start().withZoneSameInstant(comparisonZone);
+        ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(comparisonZone);
+
+        if (draft.allDay()) {
+            if (start.toLocalDate().isBefore(now.toLocalDate())) {
+                rejectViolations.add(reject(
+                        "event_in_past",
+                        "Нельзя создавать событие или напоминание в прошлом."
+                ));
+            }
+            return;
+        }
+
+        if (start.isBefore(now)) {
+            rejectViolations.add(reject(
+                    "event_in_past",
+                    "Нельзя создавать событие или напоминание в прошлом."
             ));
         }
     }

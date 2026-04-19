@@ -3,6 +3,9 @@ package io.github.nadya.assistant.application.service;
 import io.github.nadya.assistant.application.command.MessageHandlingContext;
 import io.github.nadya.assistant.domain.calendar.CalendarActionType;
 import io.github.nadya.assistant.domain.calendar.CalendarEventDraft;
+import io.github.nadya.assistant.domain.common.ChannelType;
+import io.github.nadya.assistant.domain.common.ConfidenceScore;
+import io.github.nadya.assistant.domain.common.RecurrenceRule;
 import io.github.nadya.assistant.domain.common.Timezone;
 import io.github.nadya.assistant.domain.conversation.ConversationState;
 import io.github.nadya.assistant.domain.conversation.IncomingUserMessage;
@@ -21,6 +24,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -34,15 +38,12 @@ class CalendarExecutionGuardTest {
 
     @Test
     void validEventAllowed() {
-        CalendarEventDraft draft = new CalendarEventDraft(
-                "стоматолог",
-                "Created from assistant request",
+        CalendarEventDraft draft = draft(
+                "Dentist",
                 at("2026-04-17T14:00:00+03:00"),
                 at("2026-04-17T15:00:00+03:00"),
                 false,
-                new Timezone("Europe/Moscow"),
                 null,
-                "",
                 Map.of()
         );
 
@@ -51,15 +52,12 @@ class CalendarExecutionGuardTest {
 
     @Test
     void missingTitleRejected() {
-        CalendarEventDraft draft = new CalendarEventDraft(
+        CalendarEventDraft draft = draft(
                 "",
-                "Created from assistant request",
                 at("2026-04-17T14:00:00+03:00"),
                 at("2026-04-17T15:00:00+03:00"),
                 false,
-                new Timezone("Europe/Moscow"),
                 null,
-                "",
                 Map.of()
         );
 
@@ -68,15 +66,12 @@ class CalendarExecutionGuardTest {
 
     @Test
     void invalidTimeStructureRejected() {
-        CalendarEventDraft draft = new CalendarEventDraft(
-                "стоматолог",
-                "Created from assistant request",
+        CalendarEventDraft draft = draft(
+                "Dentist",
                 null,
                 null,
                 false,
-                new Timezone("Europe/Moscow"),
                 null,
-                "",
                 Map.of(
                         "assistant.rawStartDate", "2026-04-17",
                         "assistant.rawStartTime", "25:99",
@@ -89,15 +84,40 @@ class CalendarExecutionGuardTest {
 
     @Test
     void oversizedDurationRejected() {
-        CalendarEventDraft draft = new CalendarEventDraft(
-                "поездка",
-                "Created from assistant request",
+        CalendarEventDraft draft = draft(
+                "Trip",
                 at("2026-04-17T08:00:00+03:00"),
                 at("2026-04-18T12:30:00+03:00"),
                 false,
-                new Timezone("Europe/Moscow"),
                 null,
-                "",
+                Map.of()
+        );
+
+        assertEquals(ExecutionGuardOutcome.REJECT, guard.evaluate(CalendarActionType.CREATE, draft, sampleContext()).outcome());
+    }
+
+    @Test
+    void invalidTimeRangeRejected() {
+        CalendarEventDraft draft = draft(
+                "Trip",
+                at("2026-04-17T15:00:00+03:00"),
+                at("2026-04-17T14:00:00+03:00"),
+                false,
+                null,
+                Map.of()
+        );
+
+        assertEquals(ExecutionGuardOutcome.REJECT, guard.evaluate(CalendarActionType.CREATE, draft, sampleContext()).outcome());
+    }
+
+    @Test
+    void pastTimedEventRejected() {
+        CalendarEventDraft draft = draft(
+                "Reminder",
+                at("2026-04-16T22:00:00+03:00"),
+                at("2026-04-16T23:00:00+03:00"),
+                false,
+                null,
                 Map.of()
         );
 
@@ -106,15 +126,12 @@ class CalendarExecutionGuardTest {
 
     @Test
     void farFutureEventRequiresConfirmation() {
-        CalendarEventDraft draft = new CalendarEventDraft(
-                "поездка",
-                "Created from assistant request",
+        CalendarEventDraft draft = draft(
+                "Trip",
                 at("2027-11-20T09:00:00+03:00"),
                 at("2027-11-20T10:00:00+03:00"),
                 false,
-                new Timezone("Europe/Moscow"),
                 null,
-                "",
                 Map.of()
         );
 
@@ -123,19 +140,37 @@ class CalendarExecutionGuardTest {
 
     @Test
     void recurringEventRequiresConfirmation() {
-        CalendarEventDraft draft = new CalendarEventDraft(
-                "спортзал",
-                "Created from assistant request",
+        CalendarEventDraft draft = draft(
+                "Gym",
                 at("2026-04-17T18:00:00+03:00"),
                 at("2026-04-17T19:00:00+03:00"),
                 false,
-                new Timezone("Europe/Moscow"),
-                new io.github.nadya.assistant.domain.common.RecurrenceRule("RRULE:FREQ=WEEKLY"),
-                "",
+                new RecurrenceRule("RRULE:FREQ=WEEKLY"),
                 Map.of()
         );
 
         assertEquals(ExecutionGuardOutcome.REQUIRE_CONFIRMATION, guard.evaluate(CalendarActionType.CREATE, draft, sampleContext()).outcome());
+    }
+
+    private CalendarEventDraft draft(
+            String title,
+            ZonedDateTime start,
+            ZonedDateTime end,
+            boolean allDay,
+            RecurrenceRule recurrenceRule,
+            Map<String, String> metadata
+    ) {
+        return new CalendarEventDraft(
+                title,
+                "Created from assistant request",
+                start,
+                end,
+                allDay,
+                new Timezone("Europe/Moscow"),
+                recurrenceRule,
+                "",
+                metadata
+        );
     }
 
     private MessageHandlingContext sampleContext() {
@@ -143,9 +178,9 @@ class CalendarExecutionGuardTest {
                 "internal-guard",
                 "guard",
                 new UserIdentity("telegram-user:42"),
-                io.github.nadya.assistant.domain.common.ChannelType.TELEGRAM,
+                ChannelType.TELEGRAM,
                 "telegram-chat:101",
-                "Создай событие",
+                "Create event",
                 Instant.parse("2026-04-16T20:15:30Z")
         );
         UserContext userContext = new UserContext(
@@ -162,10 +197,10 @@ class CalendarExecutionGuardTest {
                 userContext,
                 ConversationState.idle(message.conversationId(), message.userId()),
                 new IntentInterpretation(
-                        new AssistantIntent(IntentType.CREATE_CALENDAR_EVENT, Map.of("title", "тест")),
-                        new io.github.nadya.assistant.domain.common.ConfidenceScore(0.95d),
-                        java.util.List.of(),
-                        java.util.List.of(),
+                        new AssistantIntent(IntentType.CREATE_CALENDAR_EVENT, Map.of("title", "test")),
+                        new ConfidenceScore(0.95d),
+                        List.of(),
+                        List.of(),
                         true
                 ),
                 ExecutionApproval.NOT_CONFIRMED

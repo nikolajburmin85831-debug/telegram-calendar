@@ -728,6 +728,73 @@ class HandleIncomingMessageServiceTest {
     }
 
     @Test
+    void shouldRejectExecutionWhenGuardFlagsInvalidTimeRange() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+
+        HandleIncomingMessageService service = createService(
+                request -> interpretation(
+                        Map.of(
+                                "title", "trip",
+                                "startDate", "2026-04-17",
+                                "startTime", "15:00",
+                                "endTime", "14:00",
+                                "allDay", "false"
+                        ),
+                        List.of(),
+                        List.of(),
+                        true,
+                        0.95d
+                ),
+                new InMemoryUserContextPort(),
+                new InMemoryConversationStatePort(),
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        ExecutionResult result = service.handle(sampleMessage("msg-invalid-range-1", "Create trip tomorrow from 15:00 to 14:00"));
+
+        assertFalse(result.success());
+        assertEquals("execution_guard_rejected", result.auditDetails());
+        assertTrue(calendarPort.createdDrafts.isEmpty());
+    }
+
+    @Test
+    void shouldRejectExecutionWhenGuardFlagsPastEvent() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+
+        HandleIncomingMessageService service = createService(
+                request -> interpretation(
+                        Map.of(
+                                "title", "reminder",
+                                "startDate", "2026-04-16",
+                                "startTime", "22:00",
+                                "allDay", "false"
+                        ),
+                        List.of(),
+                        List.of(),
+                        true,
+                        0.95d
+                ),
+                new InMemoryUserContextPort(),
+                new InMemoryConversationStatePort(),
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        ExecutionResult result = service.handle(sampleMessage("msg-past-event-1", "Create reminder today at 22:00"));
+
+        assertFalse(result.success());
+        assertEquals("execution_guard_rejected", result.auditDetails());
+        assertTrue(calendarPort.createdDrafts.isEmpty());
+    }
+
+    @Test
     void shouldSendHouseholdNotificationWhenWifeCreatesEvent() {
         RecordingCalendarPort calendarPort = new RecordingCalendarPort();
         RecordingNotificationPort notificationPort = new RecordingNotificationPort();
