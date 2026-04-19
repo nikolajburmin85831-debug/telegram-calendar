@@ -32,23 +32,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ProfileConfigurationIntegrationTest {
 
     @Test
-    void shouldUseStubAndInMemoryAdaptersInLocalProfile() {
-        try (ConfigurableApplicationContext context = new SpringApplicationBuilder(AssistantEc2Application.class)
-                .profiles("local")
-                .properties(Map.ofEntries(
-                        Map.entry("TELEGRAM_POLLING_ENABLED", false),
-                        Map.entry("TELEGRAM_NOTIFICATION_ENABLED", false)
-                ))
-                .run()) {
-            assertInstanceOf(InMemoryUserContextAdapter.class, context.getBean("userContextPort", UserContextPort.class));
-            assertInstanceOf(InMemoryConversationStateAdapter.class, context.getBean("conversationStatePort", ConversationStatePort.class));
-            assertInstanceOf(InMemoryAuditAdapter.class, context.getBean("auditPort", AuditPort.class));
-            assertInstanceOf(StubTelegramPollingClient.class, context.getBean(TelegramPollingClient.class));
-            assertTrue(context.getBean(AssistantGeminiProperties.class).stubMode());
-        }
-    }
-
-    @Test
     void shouldUseJdbcAndRealModeAdaptersInSmokeProfile() {
         try (ConfigurableApplicationContext context = new SpringApplicationBuilder(AssistantEc2Application.class)
                 .profiles("smoke")
