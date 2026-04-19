@@ -12,6 +12,10 @@ public record ExecutionResult(
         return new ExecutionResult(true, createdResourceReference, userSummary, auditDetails, null);
     }
 
+    public static ExecutionResult completedWithoutResource(String userSummary, String auditDetails) {
+        return new ExecutionResult(true, null, userSummary, auditDetails, null);
+    }
+
     public static ExecutionResult clarificationRequested(String userSummary, String auditDetails, String nextStepHint) {
         return new ExecutionResult(true, null, userSummary, auditDetails, nextStepHint);
     }

@@ -3,6 +3,7 @@ package io.github.nadya.assistant.application.service;
 import io.github.nadya.assistant.domain.conversation.IncomingUserMessage;
 import io.github.nadya.assistant.domain.conversation.PendingAction;
 import io.github.nadya.assistant.domain.intent.IntentInterpretation;
+import io.github.nadya.assistant.domain.intent.IntentType;
 
 import java.util.List;
 import java.util.Locale;
@@ -25,6 +26,11 @@ public final class PendingFlowInterruptionService {
             PendingAction pendingAction,
             IntentInterpretation followUpInterpretation
     ) {
+        if (followUpInterpretation.intentType() != IntentType.UNKNOWN
+                && followUpInterpretation.intentType() != pendingAction.interpretation().intentType()) {
+            return true;
+        }
+
         String normalizedText = normalize(message.text());
         if (!containsRequestMarker(normalizedText)) {
             return false;

@@ -103,13 +103,14 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
                 Interpret the incoming message into a canonical internal intent for a calendar assistant.
                 Return JSON only with this exact shape:
                 {
-                  "intentType": "CREATE_CALENDAR_EVENT|UNKNOWN",
+                  "intentType": "CREATE_CALENDAR_EVENT|LIST_AGENDA|UNKNOWN",
                   "entities": {
                     "title": "...",
                     "startDate": "YYYY-MM-DD",
                     "startTime": "HH:mm",
                     "allDay": "true|false",
-                    "location": "..."
+                    "location": "...",
+                    "agendaRange": "today|tomorrow"
                   },
                   "confidence": 0.0,
                   "ambiguityMarkers": [],
@@ -117,13 +118,16 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
                   "safeToExecute": false
                 }
                 Rules:
-                - Only use entity keys: title, startDate, startTime, allDay, location.
+                - Only use entity keys: title, startDate, startTime, allDay, location, agendaRange.
                 - Only use missingFields values from: ["title", "date", "time"].
                 - Only use ambiguityMarkers values from: ["time_is_range"].
                 - If date and time are explicitly present, missingFields must be [] and ambiguityMarkers must be [].
                 - Requests like "Запиши меня к стоматологу на завтра в 14" are calendar events.
                 - Short task-like phrases such as "купи молоко", "позвонить маме", "заехать в аптеку" should be treated as calendar/reminder intents rather than UNKNOWN.
                 - For that example, title should be "к стоматологу", startDate should be tomorrow, startTime should be "14:00", allDay should be "false".
+                - Read-only requests like "Что сегодня", "Планы сегодня", "События завтра" should be LIST_AGENDA with agendaRange "today" or "tomorrow".
+                - For LIST_AGENDA, do not return title/startDate/startTime/location unless they are explicitly needed; agendaRange is enough.
+                - For LIST_AGENDA with agendaRange set, missingFields must be [] and safeToExecute must be true.
                 Message: %s
                 Conversation status: %s
                 Preferred timezone: %s
@@ -271,6 +275,10 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         String originalText = request.message().text().trim();
         String normalizedText = originalText.toLowerCase(Locale.ROOT);
 
+        if (looksLikeAgendaIntent(normalizedText)) {
+            return simulateAgendaResponse(normalizedText);
+        }
+
         if (!looksLikeCalendarIntent(normalizedText, request)) {
             return new GeminiGenerateContentResponse(
                     "UNKNOWN",
@@ -335,6 +343,29 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         );
     }
 
+    private GeminiGenerateContentResponse simulateAgendaResponse(String normalizedText) {
+        String agendaRange = extractAgendaRange(normalizedText);
+        if (agendaRange == null) {
+            return new GeminiGenerateContentResponse(
+                    "UNKNOWN",
+                    Map.of(),
+                    0.35d,
+                    List.of(),
+                    List.of(),
+                    false
+            );
+        }
+
+        return new GeminiGenerateContentResponse(
+                "LIST_AGENDA",
+                Map.of("agendaRange", agendaRange),
+                0.94d,
+                List.of(),
+                List.of(),
+                true
+        );
+    }
+
     private IntentInterpretation stabilizeInterpretation(
             IntentInterpretation interpretation,
             IntentInterpretationRequest request
@@ -344,11 +375,24 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         }
 
         String originalText = request.message().text().trim();
+        String normalizedText = originalText.toLowerCase(Locale.ROOT);
+        if (looksLikeAgendaIntent(normalizedText)) {
+            String agendaRange = extractAgendaRange(normalizedText);
+            if (agendaRange != null) {
+                return new IntentInterpretation(
+                        new AssistantIntent(IntentType.LIST_AGENDA, Map.of("agendaRange", agendaRange)),
+                        new ConfidenceScore(0.82d),
+                        List.of(),
+                        List.of(),
+                        true
+                );
+            }
+        }
+
         if (!looksLikeImplicitTaskShorthand(originalText)) {
             return interpretation;
         }
 
-        String normalizedText = originalText.toLowerCase(Locale.ROOT);
         LinkedHashMap<String, String> entities = new LinkedHashMap<>();
         String title = normalizeImplicitTaskTitle(originalText);
         if (!title.isBlank()) {
@@ -405,8 +449,7 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         if (request.conversationState().isAwaitingClarification()) {
             return true;
         }
-        if (normalizedText.contains("запиши")
-                || normalizedText.contains("запишите")
+        if (containsCreateMarker(normalizedText)
                 || normalizedText.contains("записаться")) {
             return true;
         }
@@ -427,6 +470,56 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
                 "добавь",
                 "создай"
         );
+    }
+
+    private boolean looksLikeAgendaIntent(String normalizedText) {
+        if (containsCreateMarker(normalizedText)) {
+            return false;
+        }
+
+        String agendaRange = extractAgendaRange(normalizedText);
+        if (agendaRange == null) {
+            return false;
+        }
+
+        return containsAny(
+                normalizedText,
+                "что",
+                "план",
+                "событ",
+                "расписан",
+                "agenda",
+                "plans",
+                "schedule",
+                "events",
+                "what"
+        );
+    }
+
+    private boolean containsCreateMarker(String normalizedText) {
+        return containsAny(
+                normalizedText,
+                "запиши",
+                "запишите",
+                "напомни",
+                "создай",
+                "добавь",
+                "запланиру",
+                "remind",
+                "create",
+                "add",
+                "schedule"
+        );
+    }
+
+    private String extractAgendaRange(String normalizedText) {
+        if (containsAny(normalizedText, "завтра", "tomorrow")) {
+            return "tomorrow";
+        }
+        if (containsAny(normalizedText, "сегодня", "today")) {
+            return "today";
+        }
+        return null;
     }
 
     private boolean looksLikeImplicitTaskShorthand(String originalText) {

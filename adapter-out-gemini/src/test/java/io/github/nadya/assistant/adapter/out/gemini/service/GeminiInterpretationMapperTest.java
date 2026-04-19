@@ -59,4 +59,23 @@ class GeminiInterpretationMapperTest {
         assertEquals(List.of("time_is_range"), interpretation.ambiguityMarkers());
         assertEquals(List.of("date"), interpretation.missingFields());
     }
+
+    @Test
+    void shouldMapAgendaIntentWithoutCreateSpecificMissingFields() {
+        GeminiGenerateContentResponse response = new GeminiGenerateContentResponse(
+                "LIST_AGENDA",
+                Map.of("agendaRange", "today"),
+                0.93d,
+                List.of(),
+                List.of(),
+                true
+        );
+
+        var interpretation = mapper.map(response);
+
+        assertEquals(IntentType.LIST_AGENDA, interpretation.intentType());
+        assertEquals("today", interpretation.assistantIntent().entities().get("agendaRange"));
+        assertTrue(interpretation.missingFields().isEmpty());
+        assertTrue(interpretation.safeToExecute());
+    }
 }

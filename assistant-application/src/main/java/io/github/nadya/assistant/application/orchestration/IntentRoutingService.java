@@ -27,7 +27,14 @@ public final class IntentRoutingService {
             IntentInterpretation interpretation
     ) {
         if (interpretation.intentType() == IntentType.UNKNOWN) {
-            return ExecutionDecision.reject("Пока я умею только создавать события и напоминания в календаре.");
+            return ExecutionDecision.reject("Пока я умею создавать события и показывать планы на сегодня или завтра.");
+        }
+
+        if (interpretation.intentType() == IntentType.LIST_AGENDA) {
+            if (requiresClarification(interpretation)) {
+                return ExecutionDecision.reject("Пока я могу показать планы только на сегодня или на завтра.");
+            }
+            return ExecutionDecision.executeNow();
         }
 
         if (requiresClarification(interpretation)) {

@@ -2,6 +2,7 @@ package io.github.nadya.assistant.adapter.out.google.calendar.mapper;
 
 import io.github.nadya.assistant.adapter.out.google.calendar.client.GoogleCalendarClient;
 import io.github.nadya.assistant.adapter.out.google.calendar.config.GoogleCalendarProperties;
+import io.github.nadya.assistant.domain.calendar.CalendarDateRange;
 import io.github.nadya.assistant.domain.calendar.CalendarEventDraft;
 
 import java.time.format.DateTimeFormatter;
@@ -21,6 +22,15 @@ public final class GoogleCalendarRequestMapper {
                 draft.allDay(),
                 draft.timezone().value(),
                 draft.location()
+        );
+    }
+
+    public GoogleCalendarClient.ListRequest map(CalendarDateRange dateRange, GoogleCalendarProperties properties) {
+        return new GoogleCalendarClient.ListRequest(
+                properties.calendarId(),
+                RFC3339_DATE_TIME_FORMATTER.format(dateRange.startInclusive().toOffsetDateTime()),
+                RFC3339_DATE_TIME_FORMATTER.format(dateRange.endExclusive().toOffsetDateTime()),
+                dateRange.startInclusive().getZone().getId()
         );
     }
 }

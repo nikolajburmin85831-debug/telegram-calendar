@@ -3,8 +3,10 @@ package io.github.nadya.assistant.application.service;
 import io.github.nadya.assistant.application.command.MessageHandlingContext;
 import io.github.nadya.assistant.application.handler.ClarificationHandler;
 import io.github.nadya.assistant.application.handler.CreateCalendarEventHandler;
+import io.github.nadya.assistant.application.handler.ListAgendaHandler;
 import io.github.nadya.assistant.application.handler.PendingConfirmationHandler;
 import io.github.nadya.assistant.application.orchestration.IntentRoutingService;
+import io.github.nadya.assistant.application.query.AgendaQuery;
 import io.github.nadya.assistant.application.result.HandlingOutcome;
 import io.github.nadya.assistant.domain.calendar.CalendarActionType;
 import io.github.nadya.assistant.domain.conversation.ConversationState;
@@ -42,6 +44,8 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
     private final AuditPort auditPort;
     private final IntentRoutingService intentRoutingService;
     private final CreateCalendarEventHandler createCalendarEventHandler;
+    private final ListAgendaHandler listAgendaHandler;
+    private final AgendaQueryFactory agendaQueryFactory;
     private final CalendarEventDraftFactory calendarEventDraftFactory;
     private final CalendarExecutionGuard calendarExecutionGuard;
     private final ClarificationRetryService clarificationRetryService;
@@ -62,6 +66,8 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
             AuditPort auditPort,
             IntentRoutingService intentRoutingService,
             CreateCalendarEventHandler createCalendarEventHandler,
+            ListAgendaHandler listAgendaHandler,
+            AgendaQueryFactory agendaQueryFactory,
             CalendarEventDraftFactory calendarEventDraftFactory,
             CalendarExecutionGuard calendarExecutionGuard,
             ClarificationRetryService clarificationRetryService,
@@ -81,6 +87,8 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
         this.auditPort = auditPort;
         this.intentRoutingService = intentRoutingService;
         this.createCalendarEventHandler = createCalendarEventHandler;
+        this.listAgendaHandler = listAgendaHandler;
+        this.agendaQueryFactory = agendaQueryFactory;
         this.calendarEventDraftFactory = calendarEventDraftFactory;
         this.calendarExecutionGuard = calendarExecutionGuard;
         this.clarificationRetryService = clarificationRetryService;
@@ -369,11 +377,17 @@ public final class HandleIncomingMessageService implements HandleIncomingMessage
 
         return switch (interpretation.intentType()) {
             case CREATE_CALENDAR_EVENT -> executeCreateEvent(context);
+            case LIST_AGENDA -> executeListAgenda(context);
             default -> new HandlingOutcome(
-                    ExecutionResult.rejected("Пока я умею выполнять только создание событий календаря.", "unsupported_execution_intent"),
+                    ExecutionResult.rejected("Пока я умею создавать события и показывать планы на сегодня или завтра.", "unsupported_execution_intent"),
                     conversationState.failed()
             );
         };
+    }
+
+    private HandlingOutcome executeListAgenda(MessageHandlingContext context) {
+        AgendaQuery agendaQuery = agendaQueryFactory.build(context);
+        return listAgendaHandler.handle(context, agendaQuery);
     }
 
     private HandlingOutcome executeCreateEvent(MessageHandlingContext context) {

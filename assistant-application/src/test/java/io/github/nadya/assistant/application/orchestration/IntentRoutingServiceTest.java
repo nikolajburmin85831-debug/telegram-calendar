@@ -75,6 +75,24 @@ class IntentRoutingServiceTest {
         assertEquals("Создать событие \"демо\" на 2026-04-17 в 09:00", decision.pendingConfirmation().actionSummary());
     }
 
+    @Test
+    void shouldExecuteAgendaWithoutConfirmation() {
+        var decision = service.decide(
+                message(),
+                userContext(ConfirmationPreference.REQUIRE_CONFIRMATION),
+                interpretation(
+                        IntentType.LIST_AGENDA,
+                        Map.of("agendaRange", "today"),
+                        List.of(),
+                        List.of(),
+                        true,
+                        0.95d
+                )
+        );
+
+        assertEquals(ExecutionOutcome.EXECUTE_NOW, decision.outcome());
+    }
+
     private IncomingUserMessage message() {
         return new IncomingUserMessage(
                 "internal-1",

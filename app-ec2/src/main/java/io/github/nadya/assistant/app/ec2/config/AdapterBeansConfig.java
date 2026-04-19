@@ -13,6 +13,7 @@ import io.github.nadya.assistant.adapter.out.google.calendar.client.GoogleCalend
 import io.github.nadya.assistant.adapter.out.google.calendar.client.HttpGoogleCalendarClient;
 import io.github.nadya.assistant.adapter.out.google.calendar.client.StubGoogleCalendarClient;
 import io.github.nadya.assistant.adapter.out.google.calendar.config.GoogleCalendarProperties;
+import io.github.nadya.assistant.adapter.out.google.calendar.mapper.GoogleCalendarEventMapper;
 import io.github.nadya.assistant.adapter.out.google.calendar.mapper.GoogleCalendarRequestMapper;
 import io.github.nadya.assistant.adapter.out.google.calendar.oauth.GoogleCalendarOAuthSupport;
 import io.github.nadya.assistant.adapter.out.google.calendar.oauth.GoogleOAuthProperties;
@@ -176,15 +177,22 @@ public class AdapterBeansConfig {
     }
 
     @Bean
+    GoogleCalendarEventMapper googleCalendarEventMapper() {
+        return new GoogleCalendarEventMapper();
+    }
+
+    @Bean
     CalendarPort calendarPort(
             GoogleCalendarClient googleCalendarClient,
             GoogleCalendarRequestMapper googleCalendarRequestMapper,
+            GoogleCalendarEventMapper googleCalendarEventMapper,
             GoogleCalendarOAuthSupport googleCalendarOAuthSupport,
             GoogleCalendarProperties googleCalendarProperties
     ) {
         return new GoogleCalendarAdapter(
                 googleCalendarClient,
                 googleCalendarRequestMapper,
+                googleCalendarEventMapper,
                 googleCalendarOAuthSupport,
                 googleCalendarProperties
         );

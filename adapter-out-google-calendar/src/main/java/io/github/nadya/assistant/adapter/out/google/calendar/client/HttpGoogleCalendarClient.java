@@ -15,6 +15,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 
 public final class HttpGoogleCalendarClient implements GoogleCalendarClient {
 
@@ -97,8 +98,48 @@ public final class HttpGoogleCalendarClient implements GoogleCalendarClient {
         }
     }
 
+    @Override
+    public List<ListItem> list(ListRequest request) {
+        try {
+            HttpResponse<String> response = sendList(request, accessTokenProvider.getAccessToken());
+            if (response.statusCode() == 401) {
+                accessTokenProvider.invalidate();
+                response = sendList(request, accessTokenProvider.getAccessToken());
+            }
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException(
+                        "Google Calendar list failed with status "
+                                + response.statusCode()
+                                + formatErrorDetail(response.body())
+                );
+            }
+
+            GoogleCalendarListEnvelope envelope = objectMapper.readValue(response.body(), GoogleCalendarListEnvelope.class);
+            if (envelope.items() == null) {
+                return List.of();
+            }
+
+            return envelope.items().stream()
+                    .map(item -> new ListItem(
+                            item.summary() == null ? "" : item.summary(),
+                            item.start() == null ? null : item.start().dateTime(),
+                            item.start() == null ? null : item.start().date(),
+                            item.end() == null ? null : item.end().dateTime(),
+                            item.end() == null ? null : item.end().date(),
+                            resolveItemTimeZone(item, request),
+                            item.location() == null ? "" : item.location()
+                    ))
+                    .toList();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Google Calendar list response could not be parsed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Google Calendar list request was interrupted", exception);
+        }
+    }
+
     private HttpResponse<String> sendInsert(InsertRequest request, String accessToken) throws IOException, InterruptedException {
-        HttpRequest httpRequest = HttpRequest.newBuilder(buildUri(request.calendarId()))
+        HttpRequest httpRequest = HttpRequest.newBuilder(buildInsertUri(request.calendarId()))
                 .timeout(HTTP_TIMEOUT)
                 .header("Authorization", "Bearer " + accessToken)
                 .header("Content-Type", "application/json")
@@ -107,9 +148,32 @@ public final class HttpGoogleCalendarClient implements GoogleCalendarClient {
         return httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     }
 
-    private URI buildUri(String calendarId) {
+    private HttpResponse<String> sendList(ListRequest request, String accessToken) throws IOException, InterruptedException {
+        HttpRequest httpRequest = HttpRequest.newBuilder(buildListUri(request))
+                .timeout(HTTP_TIMEOUT)
+                .header("Authorization", "Bearer " + accessToken)
+                .GET()
+                .build();
+        return httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    private URI buildInsertUri(String calendarId) {
         String encodedCalendarId = URLEncoder.encode(calendarId, StandardCharsets.UTF_8);
         return URI.create(properties.baseUrl() + "/calendars/" + encodedCalendarId + "/events");
+    }
+
+    private URI buildListUri(ListRequest request) {
+        String encodedCalendarId = URLEncoder.encode(request.calendarId(), StandardCharsets.UTF_8);
+        StringBuilder uri = new StringBuilder(properties.baseUrl())
+                .append("/calendars/")
+                .append(encodedCalendarId)
+                .append("/events?singleEvents=true&orderBy=startTime")
+                .append("&timeMin=").append(URLEncoder.encode(request.timeMin(), StandardCharsets.UTF_8))
+                .append("&timeMax=").append(URLEncoder.encode(request.timeMax(), StandardCharsets.UTF_8));
+        if (request.timeZone() != null && !request.timeZone().isBlank()) {
+            uri.append("&timeZone=").append(URLEncoder.encode(request.timeZone(), StandardCharsets.UTF_8));
+        }
+        return URI.create(uri.toString());
     }
 
     private String serializeRequest(InsertRequest request) {
@@ -157,6 +221,16 @@ public final class HttpGoogleCalendarClient implements GoogleCalendarClient {
         );
     }
 
+    private String resolveItemTimeZone(GoogleCalendarListItemEnvelope item, ListRequest request) {
+        if (item.start() != null && item.start().timeZone() != null && !item.start().timeZone().isBlank()) {
+            return item.start().timeZone();
+        }
+        if (item.end() != null && item.end().timeZone() != null && !item.end().timeZone().isBlank()) {
+            return item.end().timeZone();
+        }
+        return request.timeZone();
+    }
+
     record GoogleCalendarInsertRequest(
             String summary,
             String description,
@@ -182,5 +256,26 @@ public final class HttpGoogleCalendarClient implements GoogleCalendarClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GoogleCalendarInsertEnvelope(String id, String htmlLink) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GoogleCalendarListEnvelope(List<GoogleCalendarListItemEnvelope> items) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GoogleCalendarListItemEnvelope(
+            String summary,
+            String location,
+            GoogleCalendarListTimeEnvelope start,
+            GoogleCalendarListTimeEnvelope end
+    ) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GoogleCalendarListTimeEnvelope(
+            String dateTime,
+            String date,
+            String timeZone
+    ) {
     }
 }

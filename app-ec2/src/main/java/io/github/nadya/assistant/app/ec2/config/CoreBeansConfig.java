@@ -2,8 +2,11 @@ package io.github.nadya.assistant.app.ec2.config;
 
 import io.github.nadya.assistant.application.handler.ClarificationHandler;
 import io.github.nadya.assistant.application.handler.CreateCalendarEventHandler;
+import io.github.nadya.assistant.application.handler.ListAgendaHandler;
 import io.github.nadya.assistant.application.handler.PendingConfirmationHandler;
 import io.github.nadya.assistant.application.orchestration.IntentRoutingService;
+import io.github.nadya.assistant.application.service.AgendaQueryFactory;
+import io.github.nadya.assistant.application.service.AgendaSummaryFormatter;
 import io.github.nadya.assistant.application.service.CalendarEventDraftFactory;
 import io.github.nadya.assistant.application.service.CalendarExecutionGuard;
 import io.github.nadya.assistant.application.service.CalendarExecutionGuardSettings;
@@ -106,6 +109,24 @@ public class CoreBeansConfig {
     }
 
     @Bean
+    AgendaQueryFactory agendaQueryFactory() {
+        return new AgendaQueryFactory();
+    }
+
+    @Bean
+    AgendaSummaryFormatter agendaSummaryFormatter() {
+        return new AgendaSummaryFormatter();
+    }
+
+    @Bean
+    ListAgendaHandler listAgendaHandler(
+            CalendarPort calendarPort,
+            AgendaSummaryFormatter agendaSummaryFormatter
+    ) {
+        return new ListAgendaHandler(calendarPort, agendaSummaryFormatter);
+    }
+
+    @Bean
     ClarificationHandler clarificationHandler() {
         return new ClarificationHandler();
     }
@@ -155,6 +176,8 @@ public class CoreBeansConfig {
             AuditPort auditPort,
             IntentRoutingService intentRoutingService,
             CreateCalendarEventHandler createCalendarEventHandler,
+            ListAgendaHandler listAgendaHandler,
+            AgendaQueryFactory agendaQueryFactory,
             CalendarEventDraftFactory calendarEventDraftFactory,
             CalendarExecutionGuard calendarExecutionGuard,
             ClarificationRetryService clarificationRetryService,
@@ -175,6 +198,8 @@ public class CoreBeansConfig {
                 auditPort,
                 intentRoutingService,
                 createCalendarEventHandler,
+                listAgendaHandler,
+                agendaQueryFactory,
                 calendarEventDraftFactory,
                 calendarExecutionGuard,
                 clarificationRetryService,

@@ -14,7 +14,7 @@ public final class GeminiInterpretationMapper {
         IntentType intentType = normalizeIntentType(response.intentType());
         Map<String, String> entities = normalizeEntities(response.entities());
         List<String> ambiguityMarkers = normalizeAmbiguityMarkers(response.ambiguityMarkers());
-        List<String> missingFields = normalizeMissingFields(response.missingFields(), entities, ambiguityMarkers);
+        List<String> missingFields = normalizeMissingFields(response.missingFields(), intentType, entities, ambiguityMarkers);
         boolean safeToExecute = intentType != IntentType.UNKNOWN
                 && ambiguityMarkers.isEmpty()
                 && missingFields.isEmpty();
@@ -33,6 +33,8 @@ public final class GeminiInterpretationMapper {
         return switch (normalized) {
             case "createcalendarevent", "calendarevent", "createevent", "appointment", "reminder" ->
                     IntentType.CREATE_CALENDAR_EVENT;
+            case "listagenda", "agenda", "showagenda", "dayagenda", "showplans", "listevents" ->
+                    IntentType.LIST_AGENDA;
             default -> IntentType.UNKNOWN;
         };
     }
@@ -81,6 +83,7 @@ public final class GeminiInterpretationMapper {
 
     private List<String> normalizeMissingFields(
             List<String> rawMissingFields,
+            IntentType intentType,
             Map<String, String> entities,
             List<String> ambiguityMarkers
     ) {
@@ -90,6 +93,13 @@ public final class GeminiInterpretationMapper {
             if (canonical != null) {
                 normalized.add(canonical);
             }
+        }
+
+        if (intentType == IntentType.LIST_AGENDA) {
+            if (entities.getOrDefault("agendaRange", "").isBlank()) {
+                normalized.add("date");
+            }
+            return List.copyOf(normalized);
         }
 
         if (entities.getOrDefault("title", "").isBlank()) {
@@ -110,6 +120,7 @@ public final class GeminiInterpretationMapper {
         String normalized = normalizeKey(rawKey);
         return switch (normalized) {
             case "title", "summary", "subject", "name", "eventtitle" -> "title";
+            case "agendarange", "relativeagendarange", "relativeperiod", "dayrange" -> "agendaRange";
             case "startdate", "date", "day" -> "startDate";
             case "starttime", "time", "hour" -> "startTime";
             case "enddate" -> "endDate";

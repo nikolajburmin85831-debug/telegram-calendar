@@ -2,8 +2,11 @@ package io.github.nadya.assistant.application.service;
 
 import io.github.nadya.assistant.application.handler.ClarificationHandler;
 import io.github.nadya.assistant.application.handler.CreateCalendarEventHandler;
+import io.github.nadya.assistant.application.handler.ListAgendaHandler;
 import io.github.nadya.assistant.application.handler.PendingConfirmationHandler;
 import io.github.nadya.assistant.application.orchestration.IntentRoutingService;
+import io.github.nadya.assistant.domain.calendar.CalendarAgendaEvent;
+import io.github.nadya.assistant.domain.calendar.CalendarDateRange;
 import io.github.nadya.assistant.domain.calendar.CalendarEventDraft;
 import io.github.nadya.assistant.domain.calendar.CalendarEventReference;
 import io.github.nadya.assistant.domain.common.ChannelType;
@@ -80,6 +83,115 @@ class HandleIncomingMessageServiceTest {
         assertEquals(1, notificationPort.commands.size());
         assertEquals(ConversationStatus.COMPLETED, conversationStatePort.findByConversationId("telegram-chat:101").orElseThrow().status());
         assertEquals("telegram-chat:101", userContextPort.findByUserId(new UserIdentity("telegram-user:42")).orElseThrow().activeConversationId());
+    }
+
+    @Test
+    void shouldListTodayAgendaWithEvents() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        calendarPort.agendaEventsToReturn = List.of(
+                agendaEvent("Командный созвон", "2026-04-16T09:00:00+03:00[Europe/Moscow]", "2026-04-16T09:30:00+03:00[Europe/Moscow]", false, "Zoom"),
+                agendaEvent("Спортзал", "2026-04-16T19:00:00+03:00[Europe/Moscow]", "2026-04-16T20:00:00+03:00[Europe/Moscow]", false, "")
+        );
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+        InMemoryConversationStatePort conversationStatePort = new InMemoryConversationStatePort();
+
+        HandleIncomingMessageService service = createService(
+                request -> agendaInterpretation("today"),
+                new InMemoryUserContextPort(),
+                conversationStatePort,
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        ExecutionResult result = service.handle(sampleMessage("agenda-today-1", "Что сегодня"));
+
+        assertTrue(result.success());
+        assertNull(result.createdResourceReference());
+        assertTrue(result.userSummary().contains("Сегодня, 16 апреля"));
+        assertTrue(result.userSummary().contains("09:00-09:30 - Командный созвон (Zoom)"));
+        assertTrue(result.userSummary().contains("19:00-20:00 - Спортзал"));
+        assertEquals(1, calendarPort.listedRanges.size());
+        assertTrue(calendarPort.createdDrafts.isEmpty());
+        assertEquals(1, notificationPort.commands.size());
+        assertEquals(ConversationStatus.COMPLETED, conversationStatePort.findByConversationId("telegram-chat:101").orElseThrow().status());
+    }
+
+    @Test
+    void shouldListTomorrowAgendaWithEvents() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        calendarPort.agendaEventsToReturn = List.of(
+                agendaEvent("Стоматолог", "2026-04-17T14:00:00+03:00[Europe/Moscow]", "2026-04-17T15:00:00+03:00[Europe/Moscow]", false, "Клиника")
+        );
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+        InMemoryConversationStatePort conversationStatePort = new InMemoryConversationStatePort();
+
+        HandleIncomingMessageService service = createService(
+                request -> agendaInterpretation("tomorrow"),
+                new InMemoryUserContextPort(),
+                conversationStatePort,
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        ExecutionResult result = service.handle(sampleMessage("agenda-tomorrow-1", "Планы завтра"));
+
+        assertTrue(result.success());
+        assertTrue(result.userSummary().contains("Завтра, 17 апреля"));
+        assertTrue(result.userSummary().contains("14:00-15:00 - Стоматолог (Клиника)"));
+        assertEquals(1, calendarPort.listedRanges.size());
+        assertTrue(calendarPort.createdDrafts.isEmpty());
+        assertEquals(1, notificationPort.commands.size());
+        assertEquals(ConversationStatus.COMPLETED, conversationStatePort.findByConversationId("telegram-chat:101").orElseThrow().status());
+    }
+
+    @Test
+    void shouldReportEmptyTodayAgenda() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+
+        HandleIncomingMessageService service = createService(
+                request -> agendaInterpretation("today"),
+                new InMemoryUserContextPort(),
+                new InMemoryConversationStatePort(),
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        ExecutionResult result = service.handle(sampleMessage("agenda-today-empty", "События сегодня"));
+
+        assertTrue(result.success());
+        assertEquals("На сегодня событий нет.", result.userSummary());
+        assertEquals(1, calendarPort.listedRanges.size());
+        assertTrue(calendarPort.createdDrafts.isEmpty());
+    }
+
+    @Test
+    void shouldReportEmptyTomorrowAgenda() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+
+        HandleIncomingMessageService service = createService(
+                request -> agendaInterpretation("tomorrow"),
+                new InMemoryUserContextPort(),
+                new InMemoryConversationStatePort(),
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort()
+        );
+
+        ExecutionResult result = service.handle(sampleMessage("agenda-tomorrow-empty", "Что завтра"));
+
+        assertTrue(result.success());
+        assertEquals("На завтра ничего не запланировано.", result.userSummary());
+        assertEquals(1, calendarPort.listedRanges.size());
+        assertTrue(calendarPort.createdDrafts.isEmpty());
     }
 
     @Test
@@ -972,6 +1084,8 @@ class HandleIncomingMessageServiceTest {
                 auditPort,
                 new IntentRoutingService(new ConfirmationPolicyService()),
                 new CreateCalendarEventHandler(calendarPort, new HouseholdNotificationService(householdSettings)),
+                new ListAgendaHandler(calendarPort, new AgendaSummaryFormatter()),
+                new AgendaQueryFactory(),
                 new CalendarEventDraftFactory(),
                 new CalendarExecutionGuard(guardSettings, clock),
                 new ClarificationRetryService(new ClarificationRetrySettings(2)),
@@ -992,6 +1106,7 @@ class HandleIncomingMessageServiceTest {
 
     private IntentInterpretation completeInterpretation(String title, String startDate, String startTime) {
         return interpretation(
+                IntentType.CREATE_CALENDAR_EVENT,
                 Map.of(
                         "title", title,
                         "startDate", startDate,
@@ -1005,7 +1120,19 @@ class HandleIncomingMessageServiceTest {
         );
     }
 
+    private IntentInterpretation agendaInterpretation(String agendaRange) {
+        return interpretation(
+                IntentType.LIST_AGENDA,
+                Map.of("agendaRange", agendaRange),
+                List.of(),
+                List.of(),
+                true,
+                0.95d
+        );
+    }
+
     private IntentInterpretation interpretation(
+            IntentType intentType,
             Map<String, String> entities,
             List<String> ambiguityMarkers,
             List<String> missingFields,
@@ -1013,11 +1140,28 @@ class HandleIncomingMessageServiceTest {
             double confidence
     ) {
         return new IntentInterpretation(
-                new AssistantIntent(IntentType.CREATE_CALENDAR_EVENT, entities),
+                new AssistantIntent(intentType, entities),
                 new ConfidenceScore(confidence),
                 ambiguityMarkers,
                 missingFields,
                 safeToExecute
+        );
+    }
+
+    private IntentInterpretation interpretation(
+            Map<String, String> entities,
+            List<String> ambiguityMarkers,
+            List<String> missingFields,
+            boolean safeToExecute,
+            double confidence
+    ) {
+        return interpretation(
+                IntentType.CREATE_CALENDAR_EVENT,
+                entities,
+                ambiguityMarkers,
+                missingFields,
+                safeToExecute,
+                confidence
         );
     }
 
@@ -1050,6 +1194,22 @@ class HandleIncomingMessageServiceTest {
                 ConfirmationPreference.REQUIRE_CONFIRMATION,
                 Duration.ofHours(1),
                 "telegram-chat:101"
+        );
+    }
+
+    private CalendarAgendaEvent agendaEvent(
+            String title,
+            String start,
+            String end,
+            boolean allDay,
+            String location
+    ) {
+        return new CalendarAgendaEvent(
+                title,
+                java.time.ZonedDateTime.parse(start),
+                java.time.ZonedDateTime.parse(end),
+                allDay,
+                location
         );
     }
 
@@ -1117,17 +1277,30 @@ class HandleIncomingMessageServiceTest {
 
     private static final class RecordingCalendarPort implements CalendarPort {
         private final List<CalendarEventDraft> createdDrafts = new ArrayList<>();
+        private final List<CalendarDateRange> listedRanges = new ArrayList<>();
+        private List<CalendarAgendaEvent> agendaEventsToReturn = List.of();
 
         @Override
         public CalendarEventReference createEvent(CalendarEventDraft draft) {
             createdDrafts.add(draft);
             return new CalendarEventReference("calendar-ref-" + createdDrafts.size(), "stub://" + createdDrafts.size());
         }
+
+        @Override
+        public List<CalendarAgendaEvent> listEvents(CalendarDateRange dateRange) {
+            listedRanges.add(dateRange);
+            return agendaEventsToReturn;
+        }
     }
 
     private static final class FailingCalendarPort implements CalendarPort {
         @Override
         public CalendarEventReference createEvent(CalendarEventDraft draft) {
+            throw new IllegalStateException("calendar unavailable");
+        }
+
+        @Override
+        public List<CalendarAgendaEvent> listEvents(CalendarDateRange dateRange) {
             throw new IllegalStateException("calendar unavailable");
         }
     }

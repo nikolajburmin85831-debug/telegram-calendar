@@ -53,6 +53,26 @@ class GeminiIntentInterpreterAdapterTest {
     }
 
     @Test
+    void shouldInterpretTodayAgendaRequest() {
+        var interpretation = adapter.interpret(requestFor("Что сегодня"));
+
+        assertEquals(IntentType.LIST_AGENDA, interpretation.intentType());
+        assertEquals("today", interpretation.assistantIntent().entities().get("agendaRange"));
+        assertTrue(interpretation.missingFields().isEmpty());
+        assertTrue(interpretation.safeToExecute());
+    }
+
+    @Test
+    void shouldInterpretTomorrowAgendaRequest() {
+        var interpretation = adapter.interpret(requestFor("Планы завтра"));
+
+        assertEquals(IntentType.LIST_AGENDA, interpretation.intentType());
+        assertEquals("tomorrow", interpretation.assistantIntent().entities().get("agendaRange"));
+        assertTrue(interpretation.missingFields().isEmpty());
+        assertTrue(interpretation.safeToExecute());
+    }
+
+    @Test
     void shouldInterpretAllDayReminder() {
         var interpretation = adapter.interpret(requestFor("Напомни завтра весь день оплатить аренду"));
 

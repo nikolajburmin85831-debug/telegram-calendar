@@ -73,6 +73,74 @@ class HttpGoogleCalendarClientTest {
     }
 
     @Test
+    void shouldListAgendaThroughGoogleCalendarApi() throws IOException {
+        AtomicReference<String> authorizationHeader = new AtomicReference<>();
+        AtomicReference<String> requestQuery = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+
+        try {
+            server.createContext("/calendars/primary/events", exchange -> {
+                authorizationHeader.set(exchange.getRequestHeaders().getFirst("Authorization"));
+                requestQuery.set(exchange.getRequestURI().getQuery());
+
+                byte[] responseBody = """
+                        {
+                          "items":[
+                            {
+                              "summary":"Командный созвон",
+                              "location":"Zoom",
+                              "start":{"dateTime":"2026-04-17T09:00:00+03:00","timeZone":"Europe/Moscow"},
+                              "end":{"dateTime":"2026-04-17T09:30:00+03:00","timeZone":"Europe/Moscow"}
+                            },
+                            {
+                              "summary":"Оплатить аренду",
+                              "start":{"date":"2026-04-17"},
+                              "end":{"date":"2026-04-18"}
+                            }
+                          ]
+                        }
+                        """.trim().getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, responseBody.length);
+                try (var outputStream = exchange.getResponseBody()) {
+                    outputStream.write(responseBody);
+                }
+            });
+            server.start();
+
+            HttpGoogleCalendarClient client = new HttpGoogleCalendarClient(
+                    new GoogleCalendarProperties(
+                            true,
+                            "primary",
+                            false,
+                            "http://127.0.0.1:" + server.getAddress().getPort()
+                    ),
+                    staticAccessToken("access-token")
+            );
+
+            var response = client.list(new GoogleCalendarClient.ListRequest(
+                    "primary",
+                    "2026-04-17T00:00:00+03:00",
+                    "2026-04-18T00:00:00+03:00",
+                    "Europe/Moscow"
+            ));
+
+            assertEquals("Bearer access-token", authorizationHeader.get());
+            assertTrue(requestQuery.get().contains("singleEvents=true"));
+            assertTrue(requestQuery.get().contains("orderBy=startTime"));
+            assertTrue(requestQuery.get().contains("timeMin="));
+            assertTrue(requestQuery.get().contains("timeMax="));
+            assertTrue(requestQuery.get().contains("timeZone="));
+            assertEquals(2, response.size());
+            assertEquals("Командный созвон", response.get(0).summary());
+            assertEquals("Zoom", response.get(0).location());
+            assertEquals("2026-04-17", response.get(1).startDate());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void shouldRetryWithRefreshedAccessTokenAfterUnauthorizedResponse() throws IOException {
         AtomicInteger callCount = new AtomicInteger();
         AtomicReference<String> finalAuthorizationHeader = new AtomicReference<>();
