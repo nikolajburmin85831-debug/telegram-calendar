@@ -11,6 +11,7 @@
 secrets/
 config/local/
 config/private/
+app-ec2/src/main/resources/application-local.yml
 
 # =========================================================
 # Google / OAuth / tokens

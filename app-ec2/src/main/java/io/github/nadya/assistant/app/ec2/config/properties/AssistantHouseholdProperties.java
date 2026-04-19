@@ -30,14 +30,15 @@ public record AssistantHouseholdProperties(
 
     private void addMember(Map<String, HouseholdMember> members, String memberId, String defaultDisplayName, Member member) {
         String normalizedUserId = member.normalizedUserId();
-        if (normalizedUserId.isBlank()) {
+        List<String> normalizedConversationIds = member.normalizedConversationIds();
+        if (normalizedUserId.isBlank() && normalizedConversationIds.isEmpty()) {
             return;
         }
         members.put(memberId, new HouseholdMember(
                 memberId,
                 member.displayName(defaultDisplayName),
-                new UserIdentity(normalizedUserId),
-                member.normalizedConversationIds(),
+                new UserIdentity(normalizedUserId.isBlank() ? "household-member:" + memberId : normalizedUserId),
+                normalizedConversationIds,
                 member.normalizedNotifyMembers()
         ));
     }

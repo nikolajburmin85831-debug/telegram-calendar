@@ -43,7 +43,8 @@ class HouseholdNotificationServiceTest {
 
         assertEquals(1, notifications.size());
         assertEquals("telegram-chat:101", notifications.get(0).conversationId());
-        assertTrue(notifications.get(0).text().contains("Жена создала событие"));
+        assertTrue(notifications.get(0).text().contains("Wife"));
+        assertTrue(notifications.get(0).text().contains("Dentist"));
     }
 
     @Test
@@ -57,7 +58,8 @@ class HouseholdNotificationServiceTest {
         );
 
         assertEquals(1, notifications.size());
-        assertTrue(notifications.get(0).text().contains("Жена перенесла событие"));
+        assertTrue(notifications.get(0).text().contains("Wife"));
+        assertTrue(notifications.get(0).text().contains("Dentist"));
     }
 
     @Test
@@ -71,7 +73,41 @@ class HouseholdNotificationServiceTest {
         );
 
         assertEquals(1, notifications.size());
-        assertTrue(notifications.get(0).text().contains("Жена отменила событие"));
+        assertTrue(notifications.get(0).text().contains("Wife"));
+        assertTrue(notifications.get(0).text().contains("Dentist"));
+    }
+
+    @Test
+    void createByChatOnlyMappedWifeStillNotifiesMe() {
+        HouseholdNotificationService service = new HouseholdNotificationService(new HouseholdNotificationSettings(
+                true,
+                Map.of(
+                        "me", new HouseholdMember(
+                                "me",
+                                "Me",
+                                new UserIdentity("telegram-user:42"),
+                                List.of("telegram-chat:101"),
+                                List.of()
+                        ),
+                        "wife", new HouseholdMember(
+                                "wife",
+                                "Wife",
+                                new UserIdentity("household-member:wife"),
+                                List.of("telegram-chat:202"),
+                                List.of("me")
+                        )
+                )
+        ));
+
+        List<NotificationCommand> notifications = service.buildNotifications(
+                contextFor("telegram-user:999", "telegram-chat:202"),
+                CalendarActionType.CREATE,
+                sampleDraft()
+        );
+
+        assertEquals(1, notifications.size());
+        assertEquals("telegram-chat:101", notifications.get(0).conversationId());
+        assertTrue(notifications.get(0).text().contains("Wife"));
     }
 
     @Test
@@ -81,7 +117,7 @@ class HouseholdNotificationServiceTest {
                 Map.of(
                         "me", new HouseholdMember(
                                 "me",
-                                "Я",
+                                "Me",
                                 new UserIdentity("telegram-user:42"),
                                 List.of("telegram-chat:101"),
                                 List.of("me")
@@ -105,7 +141,7 @@ class HouseholdNotificationServiceTest {
                 Map.of(
                         "wife", new HouseholdMember(
                                 "wife",
-                                "Жена",
+                                "Wife",
                                 new UserIdentity("telegram-user:84"),
                                 List.of("telegram-chat:202"),
                                 List.of("me")
@@ -128,14 +164,14 @@ class HouseholdNotificationServiceTest {
                 Map.of(
                         "me", new HouseholdMember(
                                 "me",
-                                "Я",
+                                "Me",
                                 new UserIdentity("telegram-user:42"),
                                 List.of("telegram-chat:101"),
                                 List.of()
                         ),
                         "wife", new HouseholdMember(
                                 "wife",
-                                "Жена",
+                                "Wife",
                                 new UserIdentity("telegram-user:84"),
                                 List.of("telegram-chat:202"),
                                 List.of("me")
@@ -159,7 +195,7 @@ class HouseholdNotificationServiceTest {
                 new UserIdentity(userId),
                 ChannelType.TELEGRAM,
                 conversationId,
-                "Создай событие",
+                "Create an event",
                 Instant.parse("2026-04-16T20:15:30Z")
         );
         return new MessageHandlingContext(
@@ -175,7 +211,7 @@ class HouseholdNotificationServiceTest {
                 ),
                 ConversationState.idle(conversationId, message.userId()),
                 new IntentInterpretation(
-                        new AssistantIntent(IntentType.CREATE_CALENDAR_EVENT, Map.of("title", "стоматолог")),
+                        new AssistantIntent(IntentType.CREATE_CALENDAR_EVENT, Map.of("title", "dentist")),
                         new ConfidenceScore(0.95d),
                         List.of(),
                         List.of(),
@@ -187,7 +223,7 @@ class HouseholdNotificationServiceTest {
 
     private CalendarEventDraft sampleDraft() {
         return new CalendarEventDraft(
-                "Стоматолог",
+                "Dentist",
                 "Created from assistant request",
                 ZonedDateTime.parse("2026-04-17T14:00:00+03:00"),
                 ZonedDateTime.parse("2026-04-17T15:00:00+03:00"),

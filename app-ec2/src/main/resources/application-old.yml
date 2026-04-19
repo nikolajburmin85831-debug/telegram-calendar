@@ -1,35 +1,103 @@
 spring:
-  application:
-    name: telegram-calendar
-  main:
-    web-application-type: none
+  config:
+    activate:
+      on-profile: local
 
 assistant:
+  http:
+    connect-timeout-seconds: 15
+    use-system-proxy: false
+    proxy:
+      enabled: false
+      url: ""
+      username: ""
+      password: ""
+
+  app:
+    default-timezone: "Europe/Moscow"
+    default-language: "ru"
+    require-confirmation: false
+    default-reminder-duration-minutes: 15
+    default-meeting-duration-minutes: 30
+    idempotency-ttl-hours: 24
+
+  execution-guard:
+    max-title-length: 120
+    max-description-length: 500
+    max-event-duration-hours: 24
+    confirmation-horizon-days: 180
+
+  clarification:
+    max-invalid-attempts: 2
+
+  household:
+    enabled: true
+    me:
+      display-name: "Я"
+      telegram-user-id: "PUT_ME_TELEGRAM_USER_ID_HERE"
+      chat-ids:
+        - "PUT_ME_CHAT_ID_HERE"
+      notify-members: []
+    wife:
+      display-name: "Жена"
+      telegram-user-id: "PUT_WIFE_TELEGRAM_USER_ID_HERE"
+      chat-ids:
+        - "PUT_WIFE_CHAT_ID_HERE"
+      notify-members:
+        - "me"
+
   gemini:
-    model: ${GEMINI_MODEL:}
-    api-key: ""
-    stub-mode: true
-    base-url: https://generativelanguage.googleapis.com
+    mode: "real"
+    model: "gemma-4-26b-a4b-it"
+    api-key: "PUT_GEMINI_API_KEY_HERE"
+    base-url: "https://generativelanguage.googleapis.com"
     fallback-to-stub-on-error: true
+
   google-calendar:
-    enabled: false
-    calendar-id: primary
-    stub-mode: true
+    mode: "real"
+    enabled: true
+    calendar-id: "primary"
+    base-url: "https://www.googleapis.com/calendar/v3"
+    default-timezone: "Europe/Moscow"
+
+  google-oauth:
+    client-id: "PUT_GOOGLE_OAUTH_CLIENT_ID_HERE"
+    client-secret: "PUT_GOOGLE_OAUTH_CLIENT_SECRET_HERE"
+    refresh-token: "PUT_GOOGLE_OAUTH_REFRESH_TOKEN_HERE"
     access-token: ""
-    base-url: https://www.googleapis.com/calendar/v3
+    token-url: "https://oauth2.googleapis.com/token"
+    scopes: "https://www.googleapis.com/auth/calendar"
+    credential-source: "application-local"
+
   telegram:
+    mode: "real"
+    bot-token: "PUT_TELEGRAM_BOT_TOKEN_HERE"
+    api-base-url: "https://api.telegram.org"
     polling:
-      enabled: false
-      bot-token: ""
-      poll-interval: 5s
+      enabled: true
+      fixed-delay-ms: 1500
+      timeout-seconds: 20
       limit: 100
-      stub-mode: true
       sample-messages: []
-      stub-user-id: 10001
-      stub-chat-id: 20001
-      api-base-url: https://api.telegram.org
+      stub-user-id: "10001"
+      stub-chat-id: "20001"
     notification:
-      enabled: false
-      bot-token: ""
-      stub-mode: true
-      api-base-url: https://api.telegram.org
+      enabled: true
+
+  persistence:
+    mode: "inmemory"
+    audit-mode: "inmemory"
+    jdbc:
+      url: ""
+      username: ""
+      password: ""
+      driver-class-name: "org.postgresql.Driver"
+      schema: "public"
+      pool-max-size: 10
+      pool-min-idle: 2
+      connection-timeout-ms: 30000
+
+logging:
+  level:
+    root: "INFO"
+    io.github.nadya.assistant: "DEBUG"

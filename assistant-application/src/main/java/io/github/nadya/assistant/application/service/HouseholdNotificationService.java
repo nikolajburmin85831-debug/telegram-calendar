@@ -39,12 +39,16 @@ public final class HouseholdNotificationService {
             return List.of();
         }
 
-        HouseholdMember initiator = settings.findByUserId(context.sourceMessage().userId()).orElse(null);
+        HouseholdMember initiator = settings.findInitiator(
+                context.sourceMessage().userId(),
+                context.sourceMessage().conversationId()
+        ).orElse(null);
         if (initiator == null) {
             LOGGER.log(
                     System.Logger.Level.DEBUG,
-                    "Household notifications skipped: initiator {0} is not mapped to a household member",
-                    context.sourceMessage().userId().value()
+                    "Household notifications skipped: initiator user {0} / conversation {1} is not mapped to a household member",
+                    context.sourceMessage().userId().value(),
+                    context.sourceMessage().conversationId()
             );
             return List.of();
         }

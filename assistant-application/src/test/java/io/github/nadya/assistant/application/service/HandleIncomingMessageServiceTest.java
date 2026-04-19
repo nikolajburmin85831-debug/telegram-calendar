@@ -763,6 +763,40 @@ class HandleIncomingMessageServiceTest {
     }
 
     @Test
+    void shouldSendHouseholdNotificationWhenWifeIsConfiguredByChatOnly() {
+        RecordingCalendarPort calendarPort = new RecordingCalendarPort();
+        RecordingNotificationPort notificationPort = new RecordingNotificationPort();
+
+        HandleIncomingMessageService service = createService(
+                request -> completeInterpretation("СЃС‚РѕРјР°С‚РѕР»РѕРі", "2026-04-17", "14:00"),
+                new InMemoryUserContextPort(),
+                new InMemoryConversationStatePort(),
+                new InMemoryIdempotencyPort(),
+                calendarPort,
+                notificationPort,
+                new RecordingAuditPort(),
+                new CalendarExecutionGuardSettings(120, 500, Duration.ofHours(24), 180),
+                Clock.fixed(Instant.parse("2026-04-16T20:15:30Z"), java.time.ZoneOffset.UTC),
+                wifeChatOnlyToMeHousehold()
+        );
+
+        ExecutionResult result = service.handle(sampleMessageFor(
+                "telegram-user:999",
+                "telegram-chat:202",
+                "wife-chat-only-1",
+                "РЎРѕР·РґР°Р№ СЃС‚РѕРјР°С‚РѕР»РѕРі Р·Р°РІС‚СЂР° РІ 14:00"
+        ));
+
+        assertTrue(result.success());
+        assertEquals(1, calendarPort.createdDrafts.size());
+        assertEquals(2, notificationPort.commands.size());
+        assertTrue(notificationPort.commands.stream().anyMatch(command ->
+                command.conversationId().equals("telegram-chat:101")
+                        && command.text().contains("Р–РµРЅР°")
+        ));
+    }
+
+    @Test
     void shouldNotSendHouseholdNotificationWhenCalendarExecutionFails() {
         RecordingNotificationPort notificationPort = new RecordingNotificationPort();
 
@@ -967,6 +1001,28 @@ class HandleIncomingMessageServiceTest {
                                 "wife",
                                 "Жена",
                                 new UserIdentity("telegram-user:84"),
+                                List.of("telegram-chat:202"),
+                                List.of("me")
+                        )
+                )
+        );
+    }
+
+    private HouseholdNotificationSettings wifeChatOnlyToMeHousehold() {
+        return new HouseholdNotificationSettings(
+                true,
+                Map.of(
+                        "me", new HouseholdMember(
+                                "me",
+                                "РЇ",
+                                new UserIdentity("telegram-user:42"),
+                                List.of("telegram-chat:101"),
+                                List.of()
+                        ),
+                        "wife", new HouseholdMember(
+                                "wife",
+                                "Р–РµРЅР°",
+                                new UserIdentity("household-member:wife"),
                                 List.of("telegram-chat:202"),
                                 List.of("me")
                         )
