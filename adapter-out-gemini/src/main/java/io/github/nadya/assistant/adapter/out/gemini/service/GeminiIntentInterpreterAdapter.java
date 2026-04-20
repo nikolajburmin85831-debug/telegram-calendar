@@ -22,6 +22,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -35,8 +36,20 @@ import java.util.regex.Pattern;
 
 public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPort {
 
+    private static final String RUSSIAN_MONTH_NAMES_REGEX =
+            "января|январь|февраля|февраль|марта|март|апреля|апрель|мая|май|июня|июнь|июля|июль|августа|август|сентября|сентябрь|октября|октябрь|ноября|ноябрь|декабря|декабрь";
+    private static final String NEXT_WEEKDAY_REGEX =
+            "(?iu)(?:^|\\s)(?:в\\s+)?следующ(?:ий|ую|ее)\\s+"
+                    + "(понедельник|вторник|среда|среду|четверг|пятница|пятницу|суббота|субботу|воскресенье|"
+                    + "monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?=$|\\s|[.!?,])";
+    private static final String WORD_MONTH_DATE_REGEX =
+            "(?iu)(?<![\\p{L}\\p{N}])\\d{1,2}\\s+(?:" + RUSSIAN_MONTH_NAMES_REGEX + ")(?:\\s+\\d{4})?(?:\\s*г(?:ода?)?)?(?![\\p{L}\\p{N}])";
     private static final Pattern ISO_DATE_PATTERN = Pattern.compile("\\b(\\d{4}-\\d{2}-\\d{2})\\b");
     private static final Pattern LOCAL_DATE_PATTERN = Pattern.compile("\\b(\\d{1,2})\\.(\\d{1,2})(?:\\.(\\d{4}))?\\b");
+    private static final Pattern NEXT_WEEKDAY_PATTERN = Pattern.compile(NEXT_WEEKDAY_REGEX);
+    private static final Pattern WORD_MONTH_DATE_PATTERN = Pattern.compile(
+            "(?iu)(?<![\\p{L}\\p{N}])(\\d{1,2})\\s+(" + RUSSIAN_MONTH_NAMES_REGEX + ")(?:\\s+(\\d{4}))?(?:\\s*г(?:ода?)?)?(?![\\p{L}\\p{N}])"
+    );
     private static final Pattern TIME_PATTERN = Pattern.compile(
             "(?iu)(?:^|\\s)(?:(?:в|at)\\s*)?(\\d{1,2}):(\\d{2})(?:\\s*(утра|дня|вечера|ночи|am|pm))?(?=$|\\s|[.!?,])"
     );
@@ -44,7 +57,55 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
             "(?iu)(?:^|\\s)(?:в|at)\\s*(\\d{1,2})(?:\\s*(утра|дня|вечера|ночи|am|pm))?(?=$|\\s|[.!?,])"
     );
     private static final Pattern LOCATION_PATTERN = Pattern.compile("(?iu)\\b(?:в|at)\\s+(офисе|zoom|online|онлайн)\\b");
+    private static final Pattern CLARIFICATION_TIME_REPLY_PATTERN = Pattern.compile(
+            "(?iu)^\\s*(?:в|at)?\\s*(\\d{1,2})(?::(\\d{2}))?(?:\\s*(утра|дня|вечера|ночи|am|pm))?\\s*[.!?,]?\\s*$"
+    );
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(30);
+    private static final Map<String, Integer> RUSSIAN_MONTH_NUMBERS = Map.ofEntries(
+            Map.entry("января", 1),
+            Map.entry("январь", 1),
+            Map.entry("февраля", 2),
+            Map.entry("февраль", 2),
+            Map.entry("марта", 3),
+            Map.entry("март", 3),
+            Map.entry("апреля", 4),
+            Map.entry("апрель", 4),
+            Map.entry("мая", 5),
+            Map.entry("май", 5),
+            Map.entry("июня", 6),
+            Map.entry("июнь", 6),
+            Map.entry("июля", 7),
+            Map.entry("июль", 7),
+            Map.entry("августа", 8),
+            Map.entry("август", 8),
+            Map.entry("сентября", 9),
+            Map.entry("сентябрь", 9),
+            Map.entry("октября", 10),
+            Map.entry("октябрь", 10),
+            Map.entry("ноября", 11),
+            Map.entry("ноябрь", 11),
+            Map.entry("декабря", 12),
+            Map.entry("декабрь", 12)
+    );
+    private static final Map<String, DayOfWeek> WEEKDAY_ALIASES = Map.ofEntries(
+            Map.entry("понедельник", DayOfWeek.MONDAY),
+            Map.entry("вторник", DayOfWeek.TUESDAY),
+            Map.entry("среда", DayOfWeek.WEDNESDAY),
+            Map.entry("среду", DayOfWeek.WEDNESDAY),
+            Map.entry("четверг", DayOfWeek.THURSDAY),
+            Map.entry("пятница", DayOfWeek.FRIDAY),
+            Map.entry("пятницу", DayOfWeek.FRIDAY),
+            Map.entry("суббота", DayOfWeek.SATURDAY),
+            Map.entry("субботу", DayOfWeek.SATURDAY),
+            Map.entry("воскресенье", DayOfWeek.SUNDAY),
+            Map.entry("monday", DayOfWeek.MONDAY),
+            Map.entry("tuesday", DayOfWeek.TUESDAY),
+            Map.entry("wednesday", DayOfWeek.WEDNESDAY),
+            Map.entry("thursday", DayOfWeek.THURSDAY),
+            Map.entry("friday", DayOfWeek.FRIDAY),
+            Map.entry("saturday", DayOfWeek.SATURDAY),
+            Map.entry("sunday", DayOfWeek.SUNDAY)
+    );
 
     private final GeminiProperties properties;
     private final GeminiInterpretationMapper interpretationMapper;
@@ -128,12 +189,22 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
                 - Read-only requests like "Что сегодня", "Планы сегодня", "События завтра" should be LIST_AGENDA with agendaRange "today" or "tomorrow".
                 - For LIST_AGENDA, do not return title/startDate/startTime/location unless they are explicitly needed; agendaRange is enough.
                 - For LIST_AGENDA with agendaRange set, missingFields must be [] and safeToExecute must be true.
+                - For reminder phrasing with a target date inside the task and a separate reminder schedule, use the reminder schedule as startDate and keep the target date in title.
+                - Example: "Напомни взять отгул на 29 апреля в следующий понедельник" means title "взять отгул на 29 апреля" and startDate equal to the next Monday, not 29 April.
+                - When Conversation status is AWAITING_DATE, short clarification answers like "27.04", "27 апреля", or "27 апреля 2026" mean startDate, not title.
+                - Normalize clarification dates to "YYYY-MM-DD".
+                - When Conversation status is AWAITING_TIME, short clarification answers like "12", "в 12", or "12:30" mean startTime, not title.
+                - Normalize hour-only clarification answers like "12" to "12:00".
                 Message: %s
                 Conversation status: %s
+                Clarification reason: %s
+                Pending action entities: %s
                 Preferred timezone: %s
                 """.formatted(
                 request.message().text(),
                 request.conversationState().status(),
+                clarificationReason(request),
+                pendingActionEntities(request),
                 request.userContext().preferredTimezone().value()
         );
     }
@@ -370,6 +441,18 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
             IntentInterpretation interpretation,
             IntentInterpretationRequest request
     ) {
+        interpretation = stabilizeReminderScheduleInterpretation(interpretation, request);
+
+        IntentInterpretation clarifiedDateInterpretation = stabilizeDateClarificationInterpretation(interpretation, request);
+        if (clarifiedDateInterpretation != interpretation) {
+            return clarifiedDateInterpretation;
+        }
+
+        IntentInterpretation clarifiedTimeInterpretation = stabilizeTimeClarificationInterpretation(interpretation, request);
+        if (clarifiedTimeInterpretation != interpretation) {
+            return clarifiedTimeInterpretation;
+        }
+
         if (interpretation.intentType() != IntentType.UNKNOWN) {
             return interpretation;
         }
@@ -443,6 +526,226 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
                 List.copyOf(missingFields),
                 safeToExecute
         );
+    }
+
+    private IntentInterpretation stabilizeReminderScheduleInterpretation(
+            IntentInterpretation interpretation,
+            IntentInterpretationRequest request
+    ) {
+        String originalText = request.message().text().trim();
+        String normalizedText = originalText.toLowerCase(Locale.ROOT);
+        if (!containsReminderMarker(normalizedText)) {
+            return interpretation;
+        }
+
+        LocalDate scheduledReminderDate = extractNextWeekdayDate(normalizedText, request);
+        if (scheduledReminderDate == null) {
+            return interpretation;
+        }
+
+        LinkedHashMap<String, String> entities = new LinkedHashMap<>(interpretation.assistantIntent().entities());
+        entities.put("startDate", scheduledReminderDate.toString());
+
+        String reminderTitle = extractReminderTitleWithScheduleRemoved(originalText);
+        if (reminderTitle != null && !reminderTitle.isBlank()) {
+            entities.put("title", reminderTitle);
+        }
+
+        IntentType resolvedIntentType = interpretation.intentType() == IntentType.UNKNOWN
+                ? IntentType.CREATE_CALENDAR_EVENT
+                : interpretation.intentType();
+        List<String> ambiguityMarkers = interpretation.ambiguityMarkers();
+        List<String> missingFields = buildMissingFields(resolvedIntentType, entities, ambiguityMarkers);
+        boolean safeToExecute = resolvedIntentType != IntentType.UNKNOWN
+                && missingFields.isEmpty()
+                && ambiguityMarkers.isEmpty();
+
+        return new IntentInterpretation(
+                new AssistantIntent(resolvedIntentType, Map.copyOf(entities)),
+                new ConfidenceScore(Math.max(interpretation.confidenceScore().value(), 0.78d)),
+                ambiguityMarkers,
+                missingFields,
+                safeToExecute
+        );
+    }
+
+    private IntentInterpretation stabilizeDateClarificationInterpretation(
+            IntentInterpretation interpretation,
+            IntentInterpretationRequest request
+    ) {
+        if (!isAwaitingDateClarification(request)) {
+            return interpretation;
+        }
+        if (!interpretation.assistantIntent().entities().getOrDefault("startDate", "").isBlank()) {
+            return interpretation;
+        }
+
+        LocalDate clarifiedDate = extractDate(request.message().text().trim().toLowerCase(Locale.ROOT), request);
+        if (clarifiedDate == null) {
+            return interpretation;
+        }
+
+        LinkedHashMap<String, String> entities = new LinkedHashMap<>(interpretation.assistantIntent().entities());
+        entities.remove("title");
+        entities.put("startDate", clarifiedDate.toString());
+
+        ArrayList<String> ambiguityMarkers = new ArrayList<>(interpretation.ambiguityMarkers());
+        IntentType resolvedIntentType = interpretation.intentType() == IntentType.UNKNOWN
+                ? request.conversationState().pendingAction().interpretation().intentType()
+                : interpretation.intentType();
+        List<String> missingFields = buildMissingFields(resolvedIntentType, entities, ambiguityMarkers);
+        boolean safeToExecute = resolvedIntentType != IntentType.UNKNOWN
+                && missingFields.isEmpty()
+                && ambiguityMarkers.isEmpty();
+
+        return new IntentInterpretation(
+                new AssistantIntent(resolvedIntentType, Map.copyOf(entities)),
+                new ConfidenceScore(Math.max(interpretation.confidenceScore().value(), 0.76d)),
+                List.copyOf(ambiguityMarkers),
+                missingFields,
+                safeToExecute
+        );
+    }
+
+    private IntentInterpretation stabilizeTimeClarificationInterpretation(
+            IntentInterpretation interpretation,
+            IntentInterpretationRequest request
+    ) {
+        if (!isAwaitingTimeClarification(request)) {
+            return interpretation;
+        }
+        if (!interpretation.assistantIntent().entities().getOrDefault("startTime", "").isBlank()) {
+            return interpretation;
+        }
+
+        LocalTime clarifiedTime = extractClarificationTimeReply(request.message().text());
+        if (clarifiedTime == null) {
+            return interpretation;
+        }
+
+        LinkedHashMap<String, String> entities = new LinkedHashMap<>(interpretation.assistantIntent().entities());
+        entities.remove("title");
+        entities.put("startTime", clarifiedTime.toString());
+        entities.put("allDay", "false");
+
+        ArrayList<String> ambiguityMarkers = new ArrayList<>(interpretation.ambiguityMarkers());
+        ambiguityMarkers.removeIf("time_is_range"::equals);
+
+        IntentType resolvedIntentType = interpretation.intentType() == IntentType.UNKNOWN
+                ? request.conversationState().pendingAction().interpretation().intentType()
+                : interpretation.intentType();
+        List<String> missingFields = buildMissingFields(resolvedIntentType, entities, ambiguityMarkers);
+        boolean safeToExecute = resolvedIntentType != IntentType.UNKNOWN
+                && missingFields.isEmpty()
+                && ambiguityMarkers.isEmpty();
+
+        return new IntentInterpretation(
+                new AssistantIntent(resolvedIntentType, Map.copyOf(entities)),
+                new ConfidenceScore(Math.max(interpretation.confidenceScore().value(), 0.76d)),
+                List.copyOf(ambiguityMarkers),
+                missingFields,
+                safeToExecute
+        );
+    }
+
+    private boolean isAwaitingDateClarification(IntentInterpretationRequest request) {
+        if (!request.conversationState().isAwaitingClarification()
+                || request.conversationState().clarificationRequest() == null) {
+            return false;
+        }
+
+        String reason = request.conversationState().clarificationRequest().reason();
+        return "date".equals(reason)
+                || request.conversationState().clarificationRequest().missingFields().contains("date");
+    }
+
+    private boolean isAwaitingTimeClarification(IntentInterpretationRequest request) {
+        if (!request.conversationState().isAwaitingClarification()
+                || request.conversationState().clarificationRequest() == null) {
+            return false;
+        }
+
+        String reason = request.conversationState().clarificationRequest().reason();
+        return "time".equals(reason)
+                || "time_is_range".equals(reason)
+                || request.conversationState().clarificationRequest().missingFields().contains("time")
+                || request.conversationState().clarificationRequest().missingFields().contains("time_is_range");
+    }
+
+    private boolean containsReminderMarker(String normalizedText) {
+        return containsAny(normalizedText, "напомни", "remind");
+    }
+
+    private String extractReminderTitleWithScheduleRemoved(String originalText) {
+        String cleaned = originalText;
+        cleaned = stripPhraseIgnoreCase(cleaned, "напомни");
+        cleaned = stripPhraseIgnoreCase(cleaned, "remind");
+        cleaned = cleaned
+                .replaceAll(NEXT_WEEKDAY_REGEX, " ")
+                .replaceAll("(?iu)\\b(сегодня|завтра|today|tomorrow)\\b", " ")
+                .replaceAll("(?iu)(?:в|at)\\s*\\d{1,2}(?::\\d{2})?(?:\\s*(утра|дня|вечера|ночи|am|pm))?", " ")
+                .replaceAll("(?iu)(?:в|at)\\s+(офисе|zoom|online|онлайн)", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        cleaned = cleaned.replaceAll("(?iu)^меня\\s+", "");
+        while (cleaned.matches("(?iu).*(?:\\s+(?:в|at|to|for))$")) {
+            cleaned = cleaned.replaceAll("(?iu)\\s+(?:в|at|to|for)$", "").trim();
+        }
+        return cleaned.isBlank() ? null : cleaned;
+    }
+
+    private LocalTime extractClarificationTimeReply(String originalText) {
+        Matcher matcher = CLARIFICATION_TIME_REPLY_PATTERN.matcher(originalText == null ? "" : originalText.trim());
+        if (!matcher.matches()) {
+            return null;
+        }
+
+        int hour = Integer.parseInt(matcher.group(1));
+        int minute = matcher.group(2) == null ? 0 : Integer.parseInt(matcher.group(2));
+        return toLocalTime(hour, minute, matcher.group(3));
+    }
+
+    private List<String> buildMissingFields(
+            IntentType intentType,
+            Map<String, String> entities,
+            List<String> ambiguityMarkers
+    ) {
+        ArrayList<String> missingFields = new ArrayList<>();
+        if (intentType == IntentType.LIST_AGENDA) {
+            if (entities.getOrDefault("agendaRange", "").isBlank()) {
+                missingFields.add("date");
+            }
+            return List.copyOf(missingFields);
+        }
+
+        if (entities.getOrDefault("title", "").isBlank()) {
+            missingFields.add("title");
+        }
+        if (entities.getOrDefault("startDate", "").isBlank()) {
+            missingFields.add("date");
+        }
+        if (!Boolean.parseBoolean(entities.getOrDefault("allDay", "false"))
+                && entities.getOrDefault("startTime", "").isBlank()
+                && ambiguityMarkers.isEmpty()) {
+            missingFields.add("time");
+        }
+        return List.copyOf(missingFields);
+    }
+
+    private String clarificationReason(IntentInterpretationRequest request) {
+        if (request.conversationState().clarificationRequest() == null
+                || request.conversationState().clarificationRequest().reason() == null
+                || request.conversationState().clarificationRequest().reason().isBlank()) {
+            return "none";
+        }
+        return request.conversationState().clarificationRequest().reason();
+    }
+
+    private String pendingActionEntities(IntentInterpretationRequest request) {
+        if (request.conversationState().pendingAction() == null) {
+            return "{}";
+        }
+        return request.conversationState().pendingAction().interpretation().assistantIntent().entities().toString();
     }
 
     private boolean looksLikeCalendarIntent(String normalizedText, IntentInterpretationRequest request) {
@@ -551,6 +854,7 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         String cleaned = originalText
                 .replaceAll("(?iu)(?:в|at)\\s*\\d{1,2}(?::\\d{2})?(?:\\s*(утра|дня|вечера|ночи|am|pm))?", " ")
                 .replaceAll("\\d{1,2}\\.\\d{1,2}(?:\\.\\d{4})?", " ")
+                .replaceAll(WORD_MONTH_DATE_REGEX, " ")
                 .replaceAll("\\d{4}-\\d{2}-\\d{2}", " ")
                 .replaceAll("(?iu)\\b(сегодня|завтра|today|tomorrow|весь день|all day|утром|днем|днём|вечером|morning|afternoon|evening)\\b", " ")
                 .replaceAll("\\s+", " ")
@@ -601,6 +905,7 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
         cleaned = cleaned
                 .replaceAll("(?iu)(?:в|at)\\s*\\d{1,2}(?::\\d{2})?(?:\\s*(утра|дня|вечера|ночи|am|pm))?", " ")
                 .replaceAll("\\d{1,2}\\.\\d{1,2}(?:\\.\\d{4})?", " ")
+                .replaceAll(WORD_MONTH_DATE_REGEX, " ")
                 .replaceAll("\\d{4}-\\d{2}-\\d{2}", " ")
                 .replaceAll("(?iu)(?:в|at)\\s+(офисе|zoom|online|онлайн)", " ")
                 .replaceAll("\\s+", " ")
@@ -614,15 +919,16 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
     }
 
     private LocalDate extractDate(String normalizedText, IntentInterpretationRequest request) {
-        LocalDate today = request.message()
-                .receivedAt()
-                .atZone(request.userContext().preferredTimezone().toZoneId())
-                .toLocalDate();
+        LocalDate today = currentLocalDate(request);
         if (containsAny(normalizedText, "завтра", "tomorrow")) {
             return today.plusDays(1);
         }
         if (containsAny(normalizedText, "сегодня", "today")) {
             return today;
+        }
+        LocalDate nextWeekdayDate = extractNextWeekdayDate(normalizedText, request);
+        if (nextWeekdayDate != null) {
+            return nextWeekdayDate;
         }
 
         Matcher isoMatcher = ISO_DATE_PATTERN.matcher(normalizedText);
@@ -635,10 +941,58 @@ public final class GeminiIntentInterpreterAdapter implements IntentInterpreterPo
             int day = Integer.parseInt(localMatcher.group(1));
             int month = Integer.parseInt(localMatcher.group(2));
             int year = localMatcher.group(3) == null ? today.getYear() : Integer.parseInt(localMatcher.group(3));
-            return LocalDate.of(year, month, day);
+            try {
+                return LocalDate.of(year, month, day);
+            } catch (RuntimeException exception) {
+                return null;
+            }
+        }
+
+        Matcher wordMonthMatcher = WORD_MONTH_DATE_PATTERN.matcher(normalizedText);
+        if (wordMonthMatcher.find()) {
+            int day = Integer.parseInt(wordMonthMatcher.group(1));
+            Integer month = RUSSIAN_MONTH_NUMBERS.get(wordMonthMatcher.group(2).toLowerCase(Locale.ROOT));
+            int year = wordMonthMatcher.group(3) == null ? today.getYear() : Integer.parseInt(wordMonthMatcher.group(3));
+            if (month == null) {
+                return null;
+            }
+            try {
+                return LocalDate.of(year, month, day);
+            } catch (RuntimeException exception) {
+                return null;
+            }
         }
 
         return null;
+    }
+
+    private LocalDate extractNextWeekdayDate(String normalizedText, IntentInterpretationRequest request) {
+        Matcher nextWeekdayMatcher = NEXT_WEEKDAY_PATTERN.matcher(normalizedText);
+        if (!nextWeekdayMatcher.find()) {
+            return null;
+        }
+
+        DayOfWeek targetDay = WEEKDAY_ALIASES.get(nextWeekdayMatcher.group(1).toLowerCase(Locale.ROOT));
+        if (targetDay == null) {
+            return null;
+        }
+
+        return resolveNextWeekdayDate(currentLocalDate(request), targetDay);
+    }
+
+    private LocalDate resolveNextWeekdayDate(LocalDate referenceDate, DayOfWeek targetDay) {
+        int daysUntil = targetDay.getValue() - referenceDate.getDayOfWeek().getValue();
+        if (daysUntil <= 0) {
+            daysUntil += 7;
+        }
+        return referenceDate.plusDays(daysUntil);
+    }
+
+    private LocalDate currentLocalDate(IntentInterpretationRequest request) {
+        return request.message()
+                .receivedAt()
+                .atZone(request.userContext().preferredTimezone().toZoneId())
+                .toLocalDate();
     }
 
     private LocalTime extractTime(String normalizedText) {

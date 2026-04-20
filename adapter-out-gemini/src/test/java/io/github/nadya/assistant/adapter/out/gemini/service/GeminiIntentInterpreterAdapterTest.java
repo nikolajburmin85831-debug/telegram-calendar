@@ -140,6 +140,38 @@ class GeminiIntentInterpreterAdapterTest {
     }
 
     @Test
+    void shouldInterpretBareHourFollowUpInClarificationContext() {
+        var interpretation = adapter.interpret(requestForFollowUp("12"));
+
+        assertEquals(IntentType.CREATE_CALENDAR_EVENT, interpretation.intentType());
+        assertEquals("12:00", interpretation.assistantIntent().entities().get("startTime"));
+        assertEquals("false", interpretation.assistantIntent().entities().get("allDay"));
+        assertFalse(interpretation.assistantIntent().entities().containsKey("title"));
+    }
+
+    @Test
+    void shouldInterpretWordMonthDateFollowUpInClarificationContext() {
+        var interpretation = adapter.interpret(requestForDateFollowUp("27 апреля"));
+
+        assertEquals(IntentType.CREATE_CALENDAR_EVENT, interpretation.intentType());
+        assertEquals("2026-04-27", interpretation.assistantIntent().entities().get("startDate"));
+        assertFalse(interpretation.assistantIntent().entities().containsKey("title"));
+    }
+
+    @Test
+    void shouldPreferReminderScheduleDateOverTargetDateInsideTitle() {
+        var interpretation = adapter.interpret(requestForAt(
+                "Напомни взять отгул на 29 апреля в следующий понедельник",
+                Instant.parse("2026-04-20T09:15:30Z")
+        ));
+
+        assertEquals(IntentType.CREATE_CALENDAR_EVENT, interpretation.intentType());
+        assertEquals("2026-04-27", interpretation.assistantIntent().entities().get("startDate"));
+        assertEquals("взять отгул на 29 апреля", interpretation.assistantIntent().entities().get("title"));
+        assertTrue(interpretation.missingFields().contains("time"));
+    }
+
+    @Test
     void shouldInterpretFollowUpDateAndTimeInClarificationContext() {
         var interpretation = adapter.interpret(requestForFollowUp("завтра в 10"));
 
@@ -252,9 +284,64 @@ class GeminiIntentInterpreterAdapterTest {
     }
 
     private IntentInterpretationRequest requestFor(String text) {
+        return requestForAt(text, Instant.parse("2026-04-16T20:15:30Z"));
+    }
+
+    private IntentInterpretationRequest requestForAt(String text, Instant receivedAt) {
         IncomingUserMessage message = new IncomingUserMessage(
                 "internal-1",
                 "external-1",
+                new UserIdentity("telegram-user:42"),
+                ChannelType.TELEGRAM,
+                "telegram-chat:101",
+                text,
+                receivedAt
+        );
+        UserContext userContext = UserContext.defaultFor(new UserIdentity("telegram-user:42"), "telegram-chat:101");
+        ConversationState conversationState = new ConversationState(
+                "telegram-chat:101",
+                new UserIdentity("telegram-user:42"),
+                ConversationStatus.IDLE,
+                null,
+                null,
+                null,
+                receivedAt
+        );
+        return new IntentInterpretationRequest(message, userContext, conversationState);
+    }
+
+    private IntentInterpretationRequest requestForDateFollowUp(String text) {
+        IncomingUserMessage sourceMessage = new IncomingUserMessage(
+                "internal-source-date",
+                "external-source-date",
+                new UserIdentity("telegram-user:42"),
+                ChannelType.TELEGRAM,
+                "telegram-chat:101",
+                "Напомни позвонить маме в 10:00",
+                Instant.parse("2026-04-16T20:10:00Z")
+        );
+        PendingAction pendingAction = new PendingAction(
+                "pending-internal-source-date",
+                sourceMessage,
+                new IntentInterpretation(
+                        new AssistantIntent(
+                                IntentType.CREATE_CALENDAR_EVENT,
+                                Map.of(
+                                        "title", "позвонить маме",
+                                        "startTime", "10:00",
+                                        "allDay", "false"
+                                )
+                        ),
+                        new ConfidenceScore(0.72d),
+                        List.of(),
+                        List.of("date"),
+                        false
+                ),
+                Instant.parse("2026-04-16T20:10:00Z")
+        );
+        IncomingUserMessage followUpMessage = new IncomingUserMessage(
+                "internal-3",
+                "external-3",
                 new UserIdentity("telegram-user:42"),
                 ChannelType.TELEGRAM,
                 "telegram-chat:101",
@@ -265,13 +352,13 @@ class GeminiIntentInterpreterAdapterTest {
         ConversationState conversationState = new ConversationState(
                 "telegram-chat:101",
                 new UserIdentity("telegram-user:42"),
-                ConversationStatus.IDLE,
+                ConversationStatus.AWAITING_DATE,
+                new ClarificationRequest("date", List.of("date"), "На какую дату создать событие?", pendingAction.pendingActionId()),
                 null,
-                null,
-                null,
+                pendingAction,
                 Instant.parse("2026-04-16T20:15:30Z")
         );
-        return new IntentInterpretationRequest(message, userContext, conversationState);
+        return new IntentInterpretationRequest(followUpMessage, userContext, conversationState);
     }
 
     private IntentInterpretationRequest requestForFollowUp(String text) {
