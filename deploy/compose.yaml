@@ -1,0 +1,7 @@
+services:
+  assistant:
+    image: ghcr.io/nikolajburmin85831-debug/telegram-calendar:latest
+    container_name: telegram-calendar
+    restart: unless-stopped
+    env_file:
+      - .env
