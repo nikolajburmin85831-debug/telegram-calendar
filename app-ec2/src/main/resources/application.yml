@@ -54,7 +54,7 @@ assistant:
 
   gemini:
     mode: ${APP_GEMINI_MODE:real}
-    model: ${GEMINI_MODEL:gemma-4-26b-a4b-it}
+    model: ${GEMINI_MODEL:gemini-3.1-flash-lite}
     api-key: ${GEMINI_API_KEY:}
     base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
     fallback-to-stub-on-error: ${GEMINI_FALLBACK_TO_STUB_ON_ERROR:true}
